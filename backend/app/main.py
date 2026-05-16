@@ -1,0 +1,332 @@
+from datetime import datetime, timezone
+from random import choice
+
+from fastapi import Depends, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import desc, select
+from sqlalchemy.orm import Session
+
+from .adaptive import (
+    QUESTION_TYPES,
+    choose_fact,
+    heat_colour_accuracy,
+    heat_colour_speed,
+    normalize_answer,
+    priority_score,
+    question_for_fact,
+)
+from .database import Base, SessionLocal, engine, get_db
+from .models import ChallengeAttempt, ChallengeSession, Fact, FactStat, QuestionAttempt, User
+from .schemas import ChallengeStart, ChallengeSubmit, PracticeAnswer, TablesRequest, UserCreate
+from .seed import seed_facts
+
+app = FastAPI(title="Recall Forge API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.on_event("startup")
+def startup() -> None:
+    Base.metadata.create_all(bind=engine)
+    with SessionLocal() as db:
+        seed_facts(db)
+
+
+def get_user(db: Session, user_id: int) -> User:
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+
+def facts_for_tables(db: Session, tables: list[int]) -> list[Fact]:
+    clean_tables = sorted({table for table in tables if 2 <= table <= 12})
+    if not clean_tables:
+        raise HTTPException(status_code=400, detail="Select at least one table from 2 to 12")
+    return list(db.scalars(select(Fact).where(Fact.a.in_(clean_tables))).all())
+
+
+def get_or_create_stat(db: Session, user_id: int, fact_id: int) -> FactStat:
+    stat = db.scalar(select(FactStat).where(FactStat.user_id == user_id, FactStat.fact_id == fact_id))
+    if stat:
+        return stat
+    stat = FactStat(user_id=user_id, fact_id=fact_id)
+    db.add(stat)
+    db.flush()
+    return stat
+
+
+def record_stat(stat: FactStat, is_correct: bool, attempt_number: int, response_time_ms: int) -> None:
+    now = datetime.now(timezone.utc)
+    if is_correct:
+        stat.correct_count += 1
+        stat.current_streak += 1
+    else:
+        stat.incorrect_count += 1
+        stat.current_streak = 0
+        stat.last_failed_at = now
+
+    if attempt_number == 1:
+        stat.first_attempt_total += 1
+        if is_correct:
+            stat.first_attempt_correct += 1
+    elif attempt_number == 2:
+        stat.second_attempt_total += 1
+        if is_correct:
+            stat.second_attempt_correct += 1
+
+    stat.total_response_time_ms += response_time_ms
+    stat.response_count += 1
+    stat.last_seen = now
+
+
+@app.get("/health")
+def health() -> dict:
+    return {"ok": True}
+
+
+@app.get("/users")
+def list_users(db: Session = Depends(get_db)) -> list[dict]:
+    users = db.scalars(select(User).order_by(User.name)).all()
+    return [{"id": user.id, "name": user.name} for user in users]
+
+
+@app.post("/users")
+def create_user(payload: UserCreate, db: Session = Depends(get_db)) -> dict:
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name is required")
+    existing = db.scalar(select(User).where(User.name == name))
+    if existing:
+        return {"id": existing.id, "name": existing.name}
+    user = User(name=name)
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return {"id": user.id, "name": user.name}
+
+
+@app.get("/facts")
+def list_facts(db: Session = Depends(get_db)) -> list[dict]:
+    facts = db.scalars(select(Fact).order_by(Fact.a, Fact.b)).all()
+    return [{"id": fact.id, "a": fact.a, "b": fact.b, "product": fact.product} for fact in facts]
+
+
+@app.post("/practice/question")
+def next_practice_question(payload: TablesRequest, db: Session = Depends(get_db)) -> dict:
+    get_user(db, payload.user_id)
+    facts = facts_for_tables(db, payload.tables)
+    stats = db.scalars(select(FactStat).where(FactStat.user_id == payload.user_id)).all()
+    stats_by_fact_id = {stat.fact_id: stat for stat in stats}
+    fact = choose_fact(facts, stats_by_fact_id)
+    question_type = choice(QUESTION_TYPES)
+    prompt, _ = question_for_fact(fact, question_type)
+    return {
+        "fact_id": fact.id,
+        "a": fact.a,
+        "b": fact.b,
+        "question_type": question_type,
+        "prompt": prompt,
+        "priority_score": round(priority_score(stats_by_fact_id.get(fact.id)), 3),
+    }
+
+
+@app.post("/practice/answer")
+def answer_practice_question(payload: PracticeAnswer, db: Session = Depends(get_db)) -> dict:
+    get_user(db, payload.user_id)
+    fact = db.get(Fact, payload.fact_id)
+    if not fact:
+        raise HTTPException(status_code=404, detail="Fact not found")
+
+    prompt, correct_answer = question_for_fact(fact, payload.question_type)
+    normalized = normalize_answer(payload.answer)
+    is_correct = normalized == correct_answer
+    attempt = QuestionAttempt(
+        user_id=payload.user_id,
+        fact_id=fact.id,
+        question_type=payload.question_type,
+        prompt=prompt,
+        answer_given=payload.answer,
+        correct_answer=correct_answer,
+        is_correct=is_correct,
+        attempt_number=payload.attempt_number,
+        response_time_ms=payload.response_time_ms,
+        mode="practice",
+    )
+    db.add(attempt)
+    stat = get_or_create_stat(db, payload.user_id, fact.id)
+    record_stat(stat, is_correct, payload.attempt_number, payload.response_time_ms)
+    db.commit()
+    return {"correct": is_correct, "correct_answer": correct_answer, "prompt": prompt}
+
+
+@app.post("/challenge/start")
+def start_challenge(payload: ChallengeStart, db: Session = Depends(get_db)) -> dict:
+    get_user(db, payload.user_id)
+    facts = facts_for_tables(db, payload.tables)
+    stats = db.scalars(select(FactStat).where(FactStat.user_id == payload.user_id)).all()
+    stats_by_fact_id = {stat.fact_id: stat for stat in stats}
+    questions = []
+    for _ in range(payload.question_count):
+        fact = choose_fact(facts, stats_by_fact_id)
+        question_type = choice(QUESTION_TYPES)
+        prompt, _ = question_for_fact(fact, question_type)
+        questions.append(
+            {
+                "fact_id": fact.id,
+                "a": fact.a,
+                "b": fact.b,
+                "question_type": question_type,
+                "prompt": prompt,
+            }
+        )
+    return {"questions": questions}
+
+
+@app.post("/challenge/submit")
+def submit_challenge(payload: ChallengeSubmit, db: Session = Depends(get_db)) -> dict:
+    get_user(db, payload.user_id)
+    selected_tables = ",".join(str(table) for table in sorted(set(payload.tables)))
+    total_time = sum(answer.response_time_ms for answer in payload.answers)
+    session = ChallengeSession(
+        user_id=payload.user_id,
+        question_count=len(payload.answers),
+        selected_tables=selected_tables,
+        total_time_ms=total_time,
+    )
+    db.add(session)
+    db.flush()
+
+    results = []
+    correct_count = 0
+    for answer in payload.answers:
+        fact = db.get(Fact, answer.fact_id)
+        if not fact:
+            raise HTTPException(status_code=404, detail="Fact not found")
+        prompt, correct_answer = question_for_fact(fact, answer.question_type)
+        is_correct = normalize_answer(answer.answer) == correct_answer
+        correct_count += int(is_correct)
+        db.add(
+            ChallengeAttempt(
+                session_id=session.id,
+                fact_id=fact.id,
+                question_type=answer.question_type,
+                prompt=prompt,
+                answer_given=answer.answer,
+                correct_answer=correct_answer,
+                is_correct=is_correct,
+                response_time_ms=answer.response_time_ms,
+            )
+        )
+        db.add(
+            QuestionAttempt(
+                user_id=payload.user_id,
+                fact_id=fact.id,
+                question_type=answer.question_type,
+                prompt=prompt,
+                answer_given=answer.answer,
+                correct_answer=correct_answer,
+                is_correct=is_correct,
+                attempt_number=1,
+                response_time_ms=answer.response_time_ms,
+                mode="challenge",
+            )
+        )
+        stat = get_or_create_stat(db, payload.user_id, fact.id)
+        record_stat(stat, is_correct, 1, answer.response_time_ms)
+        results.append(
+            {
+                "prompt": prompt,
+                "answer_given": answer.answer,
+                "correct_answer": correct_answer,
+                "is_correct": is_correct,
+                "response_time_ms": answer.response_time_ms,
+            }
+        )
+
+    session.correct_count = correct_count
+    db.commit()
+
+    previous = db.scalars(
+        select(ChallengeSession)
+        .where(ChallengeSession.user_id == payload.user_id, ChallengeSession.id != session.id)
+        .order_by(desc(ChallengeSession.created_at))
+        .limit(10)
+    ).all()
+    previous_summaries = [
+        {
+            "id": item.id,
+            "accuracy": round(item.correct_count / item.question_count, 3) if item.question_count else 0,
+            "total_time_ms": item.total_time_ms,
+            "average_time_ms": round(item.total_time_ms / item.question_count) if item.question_count else 0,
+            "created_at": item.created_at.isoformat(),
+        }
+        for item in previous
+    ]
+
+    fastest = min(results, key=lambda item: item["response_time_ms"])
+    slowest = max(results, key=lambda item: item["response_time_ms"])
+    incorrect = [item for item in results if not item["is_correct"]]
+    return {
+        "session_id": session.id,
+        "total_time_ms": total_time,
+        "average_time_ms": round(total_time / len(results)),
+        "accuracy": round(correct_count / len(results), 3),
+        "correct_count": correct_count,
+        "question_count": len(results),
+        "fastest": fastest,
+        "slowest": slowest,
+        "incorrect_answers": incorrect,
+        "previous_10": previous_summaries,
+    }
+
+
+@app.get("/dashboard/{user_id}")
+def dashboard(user_id: int, db: Session = Depends(get_db)) -> dict:
+    get_user(db, user_id)
+    facts = db.scalars(select(Fact).order_by(Fact.a, Fact.b)).all()
+    stats = db.scalars(select(FactStat).where(FactStat.user_id == user_id)).all()
+    stats_by_fact_id = {stat.fact_id: stat for stat in stats}
+
+    cells = []
+    for fact in facts:
+        stat = stats_by_fact_id.get(fact.id)
+        avg_ms = None
+        correct = incorrect = 0
+        if stat:
+            correct = stat.correct_count
+            incorrect = stat.incorrect_count
+            avg_ms = stat.total_response_time_ms / stat.response_count if stat.response_count else None
+        cells.append(
+            {
+                "fact_id": fact.id,
+                "a": fact.a,
+                "b": fact.b,
+                "label": f"{fact.a}x{fact.b}",
+                "accuracy_colour": heat_colour_accuracy(correct, incorrect),
+                "speed_colour": heat_colour_speed(avg_ms),
+                "correct_count": correct,
+                "incorrect_count": incorrect,
+                "accuracy": round(correct / (correct + incorrect), 3) if correct + incorrect else None,
+                "average_time_ms": round(avg_ms) if avg_ms is not None else None,
+                "priority_score": round(priority_score(stat), 3),
+                "last_seen": stat.last_seen.isoformat() if stat and stat.last_seen else None,
+            }
+        )
+
+    attempted = [cell for cell in cells if cell["accuracy"] is not None]
+    strengths = sorted(attempted, key=lambda item: (-(item["accuracy"] or 0), item["average_time_ms"] or 999999))[:5]
+    weaknesses = sorted(attempted, key=lambda item: (-item["priority_score"], item["accuracy"] or 0))[:5]
+    totals = {
+        "correct": sum(cell["correct_count"] for cell in cells),
+        "incorrect": sum(cell["incorrect_count"] for cell in cells),
+    }
+    total_answers = totals["correct"] + totals["incorrect"]
+    totals["accuracy"] = round(totals["correct"] / total_answers, 3) if total_answers else None
+    return {"totals": totals, "cells": cells, "strengths": strengths, "weaknesses": weaknesses}
