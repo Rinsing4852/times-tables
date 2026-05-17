@@ -8,6 +8,7 @@ type Props = {
 export function TableSelector({ selected, onChange }: Props) {
   function toggle(table: number) {
     if (selected.includes(table)) {
+      if (selected.length === 1) return;
       onChange(selected.filter((item) => item !== table));
     } else {
       onChange([...selected, table].sort((a, b) => a - b));
@@ -21,6 +22,8 @@ export function TableSelector({ selected, onChange }: Props) {
           key={table}
           className={`tableButton ${selected.includes(table) ? "selected" : ""}`}
           onClick={() => toggle(table)}
+          disabled={selected.includes(table) && selected.length === 1}
+          aria-pressed={selected.includes(table)}
           type="button"
         >
           {table}

@@ -43,6 +43,7 @@ type ResultQuestion = {
   is_correct: boolean;
   response_time_ms: number;
 };
+type Mode = "practice" | "challenge" | "dashboard";
 
 const DEFAULT_TABLES = [2, 3, 4, 5];
 
@@ -55,7 +56,7 @@ export default function Home() {
   const [users, setUsers] = useState<User[]>([]);
   const [activeUser, setActiveUser] = useState<User | null>(null);
   const [name, setName] = useState("");
-  const [tab, setTab] = useState<"practice" | "challenge" | "dashboard">("practice");
+  const [tab, setTab] = useState<Mode>("practice");
   const [tables, setTables] = useState<number[]>(DEFAULT_TABLES);
   const [status, setStatus] = useState("");
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
@@ -92,22 +93,25 @@ export default function Home() {
           <p className="eyebrow">Local practice engine</p>
           <h1>Recall Forge</h1>
         </div>
-        <form className="profileForm" onSubmit={createProfile}>
-          <select
-            value={activeUser?.id || ""}
-            onChange={(event) => setActiveUser(users.find((user) => user.id === Number(event.target.value)) || null)}
-            aria-label="Active profile"
-          >
-            <option value="">Choose profile</option>
-            {users.map((user) => (
-              <option key={user.id} value={user.id}>
-                {user.name}
-              </option>
-            ))}
-          </select>
-          <input value={name} onChange={(event) => setName(event.target.value)} placeholder="New profile" />
-          <button type="submit">Add</button>
-        </form>
+        <details className="settingsMenu">
+          <summary>Settings</summary>
+          <form className="profileForm" onSubmit={createProfile}>
+            <select
+              value={activeUser?.id || ""}
+              onChange={(event) => setActiveUser(users.find((user) => user.id === Number(event.target.value)) || null)}
+              aria-label="Active profile"
+            >
+              <option value="">Choose profile</option>
+              {users.map((user) => (
+                <option key={user.id} value={user.id}>
+                  {user.name}
+                </option>
+              ))}
+            </select>
+            <input value={name} onChange={(event) => setName(event.target.value)} placeholder="New profile" />
+            <button type="submit">Add</button>
+          </form>
+        </details>
       </header>
 
       <section className="workspace">
@@ -120,7 +124,7 @@ export default function Home() {
         </nav>
         <label className="modeSelect">
           Mode
-          <select value={tab} onChange={(event) => setTab(event.target.value as "practice" | "challenge" | "dashboard")}>
+          <select value={tab} onChange={(event) => setTab(event.target.value as Mode)}>
             <option value="practice">Practice</option>
             <option value="challenge">Challenge</option>
             <option value="dashboard">Dashboard</option>
@@ -128,18 +132,16 @@ export default function Home() {
         </label>
 
         {!activeUser ? (
-          <div className="emptyState">Create a profile to begin.</div>
+          <div className="emptyState">Open settings to create a profile.</div>
         ) : (
           <>
-            <section className="panel">
-              <div className="sectionHeader">
-                <h2>Tables</h2>
-              </div>
+            <details className="panel collapsiblePanel">
+              <summary>Tables: {tables.join(", ")}</summary>
               <TableSelector selected={tables} onChange={setTables} />
-            </section>
+            </details>
 
-            {tab === "practice" && <PracticeMode user={activeUser} tables={tables} />}
-            {tab === "challenge" && <ChallengeMode user={activeUser} tables={tables} />}
+            {tab === "practice" && <PracticeMode user={activeUser} tables={tables} onShowDashboard={() => setTab("dashboard")} />}
+            {tab === "challenge" && <ChallengeMode user={activeUser} tables={tables} onShowDashboard={() => setTab("dashboard")} />}
             {tab === "dashboard" && <DashboardView dashboard={dashboard} tables={tables} />}
           </>
         )}
@@ -149,7 +151,7 @@ export default function Home() {
   );
 }
 
-function PracticeMode({ user, tables }: { user: User; tables: number[] }) {
+function PracticeMode({ user, tables, onShowDashboard }: { user: User; tables: number[]; onShowDashboard: () => void }) {
   const [question, setQuestion] = useState<Question | null>(null);
   const [answer, setAnswer] = useState("");
   const [attemptNumber, setAttemptNumber] = useState(1);
@@ -281,9 +283,14 @@ function PracticeMode({ user, tables }: { user: User; tables: number[] }) {
         <div className="sessionComplete">
           <h2>Practice complete</h2>
           <p>{questionLimit} questions finished.</p>
-          <button type="button" onClick={restartSession}>
-            Start again
-          </button>
+          <div className="actionRow">
+            <button type="button" onClick={restartSession}>
+              Start again
+            </button>
+            <button type="button" className="secondaryButton" onClick={onShowDashboard}>
+              See results
+            </button>
+          </div>
         </div>
       ) : (
         <>
@@ -297,7 +304,6 @@ function PracticeMode({ user, tables }: { user: User; tables: number[] }) {
               onChange={(event) => setAnswer(event.target.value)}
               aria-label="Answer"
             />
-            <button type="submit">Check</button>
           </form>
           <NumberPad onPress={pressNumberPad} />
           <div className={`feedback ${feedback.startsWith("Answer") ? "wrong" : ""}`}>{feedback}</div>
@@ -307,7 +313,7 @@ function PracticeMode({ user, tables }: { user: User; tables: number[] }) {
   );
 }
 
-function ChallengeMode({ user, tables }: { user: User; tables: number[] }) {
+function ChallengeMode({ user, tables, onShowDashboard }: { user: User; tables: number[]; onShowDashboard: () => void }) {
   const [count, setCount] = useState(20);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [index, setIndex] = useState(0);
@@ -397,17 +403,16 @@ function ChallengeMode({ user, tables }: { user: User; tables: number[] }) {
           <div className="questionText">{current.prompt}</div>
           <form className="answerRow" onSubmit={submit}>
             <input ref={inputRef} inputMode="numeric" pattern="[0-9]*" value={answer} onChange={(event) => setAnswer(event.target.value)} />
-            <button type="submit">Next</button>
           </form>
           <NumberPad onPress={pressNumberPad} />
         </div>
       )}
-      {result && <ChallengeResults result={result} onRestart={start} />}
+      {result && <ChallengeResults result={result} onRestart={start} onShowDashboard={onShowDashboard} />}
     </section>
   );
 }
 
-function ChallengeResults({ result, onRestart }: { result: ChallengeResult; onRestart: () => void }) {
+function ChallengeResults({ result, onRestart, onShowDashboard }: { result: ChallengeResult; onRestart: () => void; onShowDashboard: () => void }) {
   return (
     <div className="results">
       <div className="metricGrid">
@@ -448,7 +453,10 @@ function ChallengeResults({ result, onRestart }: { result: ChallengeResult; onRe
           ))}
         </div>
       )}
-      <button type="button" onClick={onRestart}>Run again</button>
+      <div className="actionRow">
+        <button type="button" onClick={onRestart}>Run again</button>
+        <button type="button" className="secondaryButton" onClick={onShowDashboard}>See dashboard</button>
+      </div>
     </div>
   );
 }

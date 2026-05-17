@@ -68,6 +68,7 @@ select {
   align-items: center;
   justify-content: space-between;
   padding: 18px 0 22px;
+  position: relative;
 }
 
 .eyebrow {
@@ -100,6 +101,54 @@ h2 {
   grid-template-columns: minmax(150px, 1fr) minmax(130px, 1fr) auto;
   gap: 8px;
   width: min(560px, 100%);
+}
+
+.settingsMenu {
+  position: relative;
+  z-index: 3;
+}
+
+.settingsMenu summary,
+.collapsiblePanel summary {
+  min-height: 48px;
+  display: grid;
+  align-items: center;
+  border-radius: 8px;
+  background: #dfe8f4;
+  color: var(--ink);
+  cursor: pointer;
+  font-weight: 900;
+  list-style: none;
+  padding: 0 16px;
+}
+
+.settingsMenu summary::-webkit-details-marker,
+.collapsiblePanel summary::-webkit-details-marker {
+  display: none;
+}
+
+.settingsMenu summary::after,
+.collapsiblePanel summary::after {
+  content: "⌄";
+  justify-self: end;
+  margin-top: -24px;
+}
+
+.settingsMenu[open] summary::after,
+.collapsiblePanel[open] summary::after {
+  content: "⌃";
+}
+
+.settingsMenu .profileForm {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  width: min(560px, calc(100vw - 40px));
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 12px;
 }
 
 .workspace {
@@ -159,6 +208,16 @@ h2 {
   background: #dbeafe;
 }
 
+.tableButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.78;
+}
+
+.collapsiblePanel {
+  display: grid;
+  gap: 12px;
+}
+
 .practiceSurface {
   display: grid;
   gap: 16px;
@@ -207,6 +266,22 @@ h2 {
   place-items: center;
 }
 
+.actionRow {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
+.secondaryButton {
+  background: #dfe8f4;
+  color: var(--ink);
+}
+
+.secondaryButton:hover {
+  background: #cfdbea;
+}
+
 .practiceSurface.compact {
   min-height: 280px;
 }
@@ -219,7 +294,7 @@ h2 {
 
 .answerRow {
   display: grid;
-  grid-template-columns: minmax(120px, 240px) auto;
+  grid-template-columns: minmax(120px, 300px);
   gap: 10px;
   justify-content: center;
   width: 100%;
@@ -230,10 +305,6 @@ h2 {
   font-size: 2rem;
   font-weight: 900;
   text-align: center;
-}
-
-.answerRow button {
-  min-height: 68px;
 }
 
 .numberPad {
@@ -591,6 +662,21 @@ h2 {
   .topbar {
     padding: 12px 0;
     gap: 10px;
+    align-items: stretch;
+  }
+
+  .settingsMenu summary {
+    width: 100%;
+  }
+
+  .settingsMenu .profileForm {
+    position: static;
+    width: 100%;
+    margin-top: 8px;
+    padding: 0;
+    border: 0;
+    box-shadow: none;
+    background: transparent;
   }
 
   .questionText {
@@ -620,7 +706,7 @@ h2 {
   }
 
   .answerRow input,
-  .answerRow button {
+  .numberPad button {
     min-height: 56px;
   }
 
