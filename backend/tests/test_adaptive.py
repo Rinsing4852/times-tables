@@ -46,6 +46,21 @@ def test_spacing_raises_priority_for_stale_fact():
     assert priority_score(stale, now) > priority_score(fresh, now)
 
 
+def test_priority_handles_sqlite_naive_datetimes():
+    now = datetime.now(timezone.utc)
+    stat = FactStat(
+        correct_count=1,
+        incorrect_count=1,
+        total_response_time_ms=8000,
+        response_count=2,
+        current_streak=0,
+        last_seen=datetime.utcnow(),
+        last_failed_at=datetime.utcnow(),
+    )
+
+    assert priority_score(stat, now) > 0
+
+
 def test_question_variants_return_expected_answers():
     fact = Fact(a=3, b=7, product=21)
 
