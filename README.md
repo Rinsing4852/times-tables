@@ -31,6 +31,38 @@ docker compose down
 
 The SQLite database is stored in the Docker volume `times-tables_backend-data`.
 
+## Unraid / Dockge
+
+For Unraid with Dockge, use `compose.dockge.yml` as the stack compose file. It is set up for LAN/Tailscale use:
+
+- only the frontend port is exposed
+- the backend stays on the private Docker bridge network
+- SQLite is stored at `/mnt/user/appdata/times-tables/data/recall_forge.db`
+- containers drop Linux capabilities
+- `no-new-privileges` is enabled
+- container filesystems are read-only except `/tmp`, frontend cache, and backend `/data`
+
+Set `UNRAID_LAN_IP` to your Unraid LAN address before deploying, or replace the default `192.168.1.50` in the compose file:
+
+```yaml
+ports:
+  - "${UNRAID_LAN_IP:-192.168.1.50}:3000:3000"
+```
+
+The browser should use:
+
+```text
+http://YOUR-UNRAID-IP:3000
+```
+
+The frontend calls the backend through a same-origin proxy at `/backend-api/*`, then the frontend container forwards those requests internally to:
+
+```text
+http://times-tables-backend:8000
+```
+
+This means port `8000` does not need to be exposed to your LAN.
+
 ## Local Development
 
 Backend:
@@ -103,6 +135,13 @@ The backend auto-creates tables on startup and seeds multiplication facts from 2
 - `POST /challenge/start`
 - `POST /challenge/submit`
 - `GET /dashboard/{user_id}`
+
+When accessed through the frontend, these same backend routes are available through `/backend-api`, for example:
+
+```text
+/backend-api/users
+/backend-api/dashboard/1
+```
 
 ## Notes
 
