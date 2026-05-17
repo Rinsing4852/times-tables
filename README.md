@@ -49,6 +49,12 @@ ports:
   - "${UNRAID_LAN_IP:-192.168.1.50}:3000:3000"
 ```
 
+The data directory can also be overridden with `TIMES_TABLES_DATA_DIR`. On Unraid, the default is already:
+
+```text
+/mnt/user/appdata/times-tables/data
+```
+
 The browser should use:
 
 ```text
