@@ -123,18 +123,16 @@ export default function Home() {
           <div className="emptyState">Create a profile to begin.</div>
         ) : (
           <>
-            {tab !== "dashboard" && (
-              <section className="panel">
-                <div className="sectionHeader">
-                  <h2>Tables</h2>
-                </div>
-                <TableSelector selected={tables} onChange={setTables} />
-              </section>
-            )}
+            <section className="panel">
+              <div className="sectionHeader">
+                <h2>Tables</h2>
+              </div>
+              <TableSelector selected={tables} onChange={setTables} />
+            </section>
 
             {tab === "practice" && <PracticeMode user={activeUser} tables={tables} />}
             {tab === "challenge" && <ChallengeMode user={activeUser} tables={tables} />}
-            {tab === "dashboard" && <DashboardView dashboard={dashboard} />}
+            {tab === "dashboard" && <DashboardView dashboard={dashboard} tables={tables} />}
           </>
         )}
         {status && <p className="error">{status}</p>}
@@ -148,9 +146,11 @@ function PracticeMode({ user, tables }: { user: User; tables: number[] }) {
   const [answer, setAnswer] = useState("");
   const [attemptNumber, setAttemptNumber] = useState(1);
   const [feedback, setFeedback] = useState("");
+  const [questionLimit, setQuestionLimit] = useState(10);
+  const [completedCount, setCompletedCount] = useState(0);
+  const [sessionDone, setSessionDone] = useState(false);
   const startedAtRef = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);
-  const selectedTables = tables.join(",");
 
   const loadQuestion = useCallback(async () => {
     if (tables.length === 0) return;
@@ -167,8 +167,30 @@ function PracticeMode({ user, tables }: { user: User; tables: number[] }) {
   }, [tables, user.id]);
 
   useEffect(() => {
+    setCompletedCount(0);
+    setSessionDone(false);
     loadQuestion().catch(() => setFeedback("Could not load a question."));
-  }, [loadQuestion]);
+  }, [loadQuestion, questionLimit]);
+
+  function finishQuestion(delayMs: number) {
+    const nextCount = completedCount + 1;
+    setCompletedCount(nextCount);
+    if (nextCount >= questionLimit) {
+      setSessionDone(true);
+      setQuestion(null);
+      return;
+    }
+    setTimeout(loadQuestion, delayMs);
+  }
+
+  function restartSession() {
+    setCompletedCount(0);
+    setSessionDone(false);
+    setFeedback("");
+    setAnswer("");
+    setAttemptNumber(1);
+    setTimeout(loadQuestion, 0);
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -187,7 +209,7 @@ function PracticeMode({ user, tables }: { user: User; tables: number[] }) {
     });
     if (result.correct) {
       setFeedback(attemptNumber === 1 ? "Correct." : "Got it on the second try.");
-      setTimeout(loadQuestion, 650);
+      finishQuestion(650);
       return;
     }
     if (attemptNumber === 1) {
@@ -199,24 +221,58 @@ function PracticeMode({ user, tables }: { user: User; tables: number[] }) {
       return;
     }
     setFeedback(`Answer: ${result.correct_answer}`);
-    setTimeout(loadQuestion, 1100);
+    finishQuestion(1100);
   }
 
   return (
-    <section className="practiceSurface">
-      <div className="questionText">{question?.prompt || "Loading..."}</div>
-      <form className="answerRow" onSubmit={submit}>
-        <input
-          ref={inputRef}
-          inputMode="numeric"
-          pattern="[0-9]*"
-          value={answer}
-          onChange={(event) => setAnswer(event.target.value)}
-          aria-label="Answer"
-        />
-        <button type="submit">Check</button>
-      </form>
-      <div className={`feedback ${feedback.startsWith("Answer") ? "wrong" : ""}`}>{feedback}</div>
+    <section className="practiceSurface practiceSession">
+      <div className="practiceControls">
+        <div className="segmented" aria-label="Practice length">
+          {[10, 15, 20].map((limit) => (
+            <button
+              key={limit}
+              className={questionLimit === limit ? "active" : ""}
+              onClick={() => {
+                setQuestionLimit(limit);
+                setCompletedCount(0);
+                setSessionDone(false);
+              }}
+              type="button"
+            >
+              {limit}
+            </button>
+          ))}
+        </div>
+        <strong>
+          {completedCount} / {questionLimit}
+        </strong>
+      </div>
+
+      {sessionDone ? (
+        <div className="sessionComplete">
+          <h2>Practice complete</h2>
+          <p>{questionLimit} questions finished.</p>
+          <button type="button" onClick={restartSession}>
+            Start again
+          </button>
+        </div>
+      ) : (
+        <>
+          <div className="questionText">{question?.prompt || "Loading..."}</div>
+          <form className="answerRow" onSubmit={submit}>
+            <input
+              ref={inputRef}
+              inputMode="numeric"
+              pattern="[0-9]*"
+              value={answer}
+              onChange={(event) => setAnswer(event.target.value)}
+              aria-label="Answer"
+            />
+            <button type="submit">Check</button>
+          </form>
+          <div className={`feedback ${feedback.startsWith("Answer") ? "wrong" : ""}`}>{feedback}</div>
+        </>
+      )}
     </section>
   );
 }
@@ -346,62 +402,141 @@ function ChallengeResults({ result, onRestart }: { result: ChallengeResult; onRe
   );
 }
 
-function DashboardView({ dashboard }: { dashboard: Dashboard | null }) {
-  const accuracyRows = useMemo(() => groupRows(dashboard?.cells || []), [dashboard]);
+function DashboardView({ dashboard, tables }: { dashboard: Dashboard | null; tables: number[] }) {
+  const [showFactLabels, setShowFactLabels] = useState(false);
+  const selectedTables = useMemo(() => [...tables].sort((a, b) => a - b), [tables]);
+  const selectedCells = useMemo(
+    () => (dashboard?.cells || []).filter((cell) => selectedTables.includes(cell.a) && selectedTables.includes(cell.b)),
+    [dashboard, selectedTables]
+  );
+  const selectedTotals = useMemo(() => {
+    const correct = selectedCells.reduce((sum, cell) => sum + cell.correct_count, 0);
+    const incorrect = selectedCells.reduce((sum, cell) => sum + cell.incorrect_count, 0);
+    const total = correct + incorrect;
+    return { correct, incorrect, accuracy: total ? correct / total : null };
+  }, [selectedCells]);
+  const selectedStrengths = useMemo(
+    () => selectedCells.filter((cell) => cell.accuracy !== null).sort((a, b) => (b.accuracy || 0) - (a.accuracy || 0) || (a.average_time_ms || 999999) - (b.average_time_ms || 999999)).slice(0, 5),
+    [selectedCells]
+  );
+  const selectedWeaknesses = useMemo(
+    () => selectedCells.filter((cell) => cell.accuracy !== null).sort((a, b) => b.priority_score - a.priority_score).slice(0, 5),
+    [selectedCells]
+  );
 
   if (!dashboard) return <section className="panel">Loading dashboard...</section>;
 
   return (
     <section className="dashboard">
       <div className="metricGrid">
-        <Metric label="Answers" value={`${dashboard.totals.correct + dashboard.totals.incorrect}`} />
-        <Metric label="Correct" value={`${dashboard.totals.correct}`} />
-        <Metric label="Incorrect" value={`${dashboard.totals.incorrect}`} />
-        <Metric label="Accuracy" value={dashboard.totals.accuracy === null ? "-" : `${Math.round(dashboard.totals.accuracy * 100)}%`} />
+        <Metric label="Answers" value={`${selectedTotals.correct + selectedTotals.incorrect}`} />
+        <Metric label="Correct" value={`${selectedTotals.correct}`} />
+        <Metric label="Incorrect" value={`${selectedTotals.incorrect}`} />
+        <Metric label="Accuracy" value={selectedTotals.accuracy === null ? "-" : `${Math.round(selectedTotals.accuracy * 100)}%`} />
       </div>
-      <HeatMap title="Accuracy" rows={accuracyRows} colourKey="accuracy_colour" valueKey="accuracy" />
-      <HeatMap title="Speed" rows={accuracyRows} colourKey="speed_colour" valueKey="average_time_ms" speed />
+      <div className="dashboardControls">
+        <label className="toggleRow">
+          <input type="checkbox" checked={showFactLabels} onChange={(event) => setShowFactLabels(event.target.checked)} />
+          Show facts in heat map boxes
+        </label>
+      </div>
+      <HeatMap title="Accuracy" cells={selectedCells} tables={selectedTables} colourKey="accuracy_colour" valueKey="accuracy" showFactLabels={showFactLabels} />
+      <HeatMap title="Speed" cells={selectedCells} tables={selectedTables} colourKey="speed_colour" valueKey="average_time_ms" showFactLabels={showFactLabels} speed />
       <div className="split">
-        <FactList title="Strengths" facts={dashboard.strengths} />
-        <FactList title="Weaknesses" facts={dashboard.weaknesses} />
+        <FactList title="Strengths" facts={selectedStrengths} />
+        <FactList title="Weaknesses" facts={selectedWeaknesses} />
       </div>
     </section>
   );
 }
 
-function groupRows(cells: DashboardCell[]) {
-  return Array.from({ length: 11 }, (_, index) => {
-    const table = index + 2;
-    return cells.filter((cell) => cell.a === table);
-  });
-}
-
 function HeatMap({
   title,
-  rows,
+  cells,
+  tables,
   colourKey,
   valueKey,
+  showFactLabels,
   speed = false
 }: {
   title: string;
-  rows: DashboardCell[][];
+  cells: DashboardCell[];
+  tables: number[];
   colourKey: "accuracy_colour" | "speed_colour";
   valueKey: "accuracy" | "average_time_ms";
+  showFactLabels: boolean;
   speed?: boolean;
 }) {
+  const cellByPair = new Map(cells.map((cell) => [`${cell.a}-${cell.b}`, cell]));
+
+  function cellClass(cell: DashboardCell | undefined, value: number | null) {
+    if (!cell || value === null) return "empty";
+    if (!speed) return cell[colourKey];
+    if (value <= 1000) return "speed0";
+    if (value <= 2000) return "speed1";
+    if (value <= 3000) return "speed2";
+    if (value <= 4000) return "speed3";
+    if (value <= 5000) return "speed4";
+    if (value <= 6000) return "speed5";
+    if (value <= 7000) return "speed6";
+    if (value <= 8000) return "speed7";
+    if (value <= 9000) return "speed8";
+    if (value <= 10000) return "speed9";
+    return "speed10";
+  }
+
   return (
     <section className="panel">
       <div className="sectionHeader">
         <h2>{title}</h2>
       </div>
-      <div className="heatMap">
-        {rows.flat().map((cell) => (
-          <div key={`${title}-${cell.fact_id}`} className={`heatCell ${cell[colourKey]}`} title={cell.label}>
-            <span>{cell.label}</span>
-            <small>{cell[valueKey] === null ? "-" : speed ? formatMs(cell[valueKey] as number) : `${Math.round((cell[valueKey] as number) * 100)}%`}</small>
-          </div>
-        ))}
+      <div className="heatMapFrame">
+        <div className="heatMap" style={{ gridTemplateColumns: `54px repeat(${tables.length}, minmax(58px, 1fr)) 54px` }}>
+          <div className="heatCorner" />
+          {tables.map((table) => (
+            <div key={`${title}-col-${table}`} className="heatHeader">
+              {table}
+            </div>
+          ))}
+          <div className="heatCorner" />
+          {tables.map((row) => (
+            <div className="heatRow" key={`${title}-row-${row}`} style={{ display: "contents" }}>
+              <div className="heatHeader">{row}</div>
+              {tables.map((column) => {
+                const cell = cellByPair.get(`${row}-${column}`);
+                const value = cell ? cell[valueKey] : null;
+                return (
+                  <div key={`${title}-${row}-${column}`} className={`heatCell ${cellClass(cell, value as number | null)}`} title={`${row} x ${column}`}>
+                    {showFactLabels && <span>{row} x {column}</span>}
+                    <small>{value === null ? "No data" : speed ? formatMs(value as number) : `${Math.round((value as number) * 100)}%`}</small>
+                  </div>
+                );
+              })}
+              <div className="heatHeader">{row}</div>
+            </div>
+          ))}
+        </div>
       </div>
+      {speed && (
+        <div className="heatLegend">
+          {[
+            ["empty", "No data"],
+            ["speed0", "0 - 1 s"],
+            ["speed1", "1 - 2 s"],
+            ["speed2", "2 - 3 s"],
+            ["speed3", "3 - 4 s"],
+            ["speed4", "4 - 5 s"],
+            ["speed5", "5 - 6 s"],
+            ["speed6", "6 - 7 s"],
+            ["speed7", "7 - 8 s"],
+            ["speed8", "8 - 9 s"],
+            ["speed9", "9 - 10 s"],
+            ["speed10", "> 10 s"]
+          ].map(([className, label]) => (
+            <span key={label} className={className}>{label}</span>
+          ))}
+        </div>
+      )}
     </section>
   );
 }

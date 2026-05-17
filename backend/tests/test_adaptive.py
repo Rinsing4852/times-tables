@@ -66,7 +66,7 @@ def test_question_variants_return_expected_answers():
 
     assert question_for_fact(fact, "multiply_ab") == ("3 x 7 = ?", 21)
     assert question_for_fact(fact, "multiply_ba") == ("7 x 3 = ?", 21)
-    assert question_for_fact(fact, "divide_product_by_a") == ("21 / 3 = ?", 7)
-    assert question_for_fact(fact, "divide_product_by_b") == ("21 / 7 = ?", 3)
+    assert question_for_fact(fact, "divide_product_by_a") == ("21 ÷ 3 = ?", 7)
+    assert question_for_fact(fact, "divide_product_by_b") == ("21 ÷ 7 = ?", 3)
     assert question_for_fact(fact, "missing_b") == ("3 x ? = 21", 7)
     assert question_for_fact(fact, "missing_a") == ("? x 7 = 21", 3)

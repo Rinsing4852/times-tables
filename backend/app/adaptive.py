@@ -29,9 +29,9 @@ def question_for_fact(fact: Fact, question_type: str) -> tuple[str, int]:
     if question_type == "multiply_ba":
         return f"{fact.b} x {fact.a} = ?", fact.product
     if question_type == "divide_product_by_a":
-        return f"{fact.product} / {fact.a} = ?", fact.b
+        return f"{fact.product} ÷ {fact.a} = ?", fact.b
     if question_type == "divide_product_by_b":
-        return f"{fact.product} / {fact.b} = ?", fact.a
+        return f"{fact.product} ÷ {fact.b} = ?", fact.a
     if question_type == "missing_b":
         return f"{fact.a} x ? = {fact.product}", fact.b
     if question_type == "missing_a":

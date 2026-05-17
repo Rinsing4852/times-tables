@@ -163,6 +163,46 @@ h2 {
   text-align: center;
 }
 
+.practiceSession {
+  align-content: center;
+}
+
+.practiceControls,
+.dashboardControls {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.segmented {
+  display: inline-grid;
+  grid-template-columns: repeat(3, minmax(54px, 1fr));
+  gap: 4px;
+  padding: 4px;
+  border-radius: 8px;
+  background: #dfe8f4;
+}
+
+.segmented button {
+  min-height: 40px;
+  background: transparent;
+  color: var(--ink);
+  padding: 0 12px;
+}
+
+.segmented button.active {
+  background: var(--ink);
+  color: white;
+}
+
+.sessionComplete {
+  display: grid;
+  gap: 10px;
+  place-items: center;
+}
+
 .practiceSurface.compact {
   min-height: 280px;
 }
@@ -253,44 +293,166 @@ h2 {
   font-size: 1.8rem;
 }
 
+.dashboardControls {
+  justify-content: flex-end;
+}
+
+.toggleRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.toggleRow input {
+  min-height: auto;
+  width: 20px;
+  height: 20px;
+}
+
+.heatMapFrame {
+  overflow-x: auto;
+  border: 2px solid #ffffff;
+  background: #ffffff;
+}
+
 .heatMap {
   display: grid;
-  grid-template-columns: repeat(11, 1fr);
-  gap: 6px;
+  gap: 2px;
+  min-width: max-content;
+}
+
+.heatCorner,
+.heatHeader {
+  min-height: 42px;
+  display: grid;
+  place-items: center;
+  background: #4b2174;
+  color: white;
+  font-weight: 900;
+  border: 1px solid rgba(255, 255, 255, 0.35);
 }
 
 .heatCell {
-  aspect-ratio: 1;
+  min-height: 54px;
   min-width: 0;
   display: grid;
   place-items: center;
   align-content: center;
   gap: 2px;
-  border-radius: 6px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  color: white;
+  border-radius: 0;
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  color: #101820;
   font-weight: 900;
 }
 
+.heatCell span {
+  white-space: nowrap;
+}
+
 .heatCell small {
-  font-size: 0.68rem;
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
 }
 
 .heatCell.empty {
-  background: #dfe5ec;
-  color: #526070;
+  background: #d9dee7;
+  color: #101820;
 }
 
 .heatCell.green {
-  background: var(--green);
+  background: #74b82d;
 }
 
 .heatCell.amber {
-  background: var(--amber);
+  background: #f2d133;
 }
 
 .heatCell.red {
-  background: var(--red);
+  background: #d71f27;
+  color: white;
+}
+
+.heatCell.speed0,
+.heatLegend .speed0 {
+  background: #78bd35;
+}
+
+.heatCell.speed1,
+.heatLegend .speed1 {
+  background: #8ec63f;
+}
+
+.heatCell.speed2,
+.heatLegend .speed2 {
+  background: #bad532;
+}
+
+.heatCell.speed3,
+.heatLegend .speed3 {
+  background: #d8dc2a;
+}
+
+.heatCell.speed4,
+.heatLegend .speed4 {
+  background: #f1d431;
+}
+
+.heatCell.speed5,
+.heatLegend .speed5 {
+  background: #f0ae2e;
+}
+
+.heatCell.speed6,
+.heatLegend .speed6 {
+  background: #ee982d;
+}
+
+.heatCell.speed7,
+.heatLegend .speed7 {
+  background: #ed7f2d;
+}
+
+.heatCell.speed8,
+.heatLegend .speed8 {
+  background: #e95f2a;
+}
+
+.heatCell.speed9,
+.heatLegend .speed9 {
+  background: #e04226;
+  color: white;
+}
+
+.heatCell.speed10,
+.heatLegend .speed10 {
+  background: #d51f26;
+  color: white;
+}
+
+.heatLegend {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(72px, 1fr));
+  gap: 2px;
+  margin-top: 10px;
+  overflow-x: auto;
+}
+
+.heatLegend span {
+  min-height: 38px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  color: #101820;
+  font-size: 0.82rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.heatLegend .empty {
+  background: #d9dee7;
 }
 
 .split {
@@ -346,8 +508,7 @@ h2 {
     grid-column: 1 / -1;
   }
 
-  .tableGrid,
-  .heatMap {
+  .tableGrid {
     grid-template-columns: repeat(6, 1fr);
   }
 }
@@ -368,8 +529,7 @@ h2 {
     grid-template-columns: 1fr;
   }
 
-  .tableGrid,
-  .heatMap {
+  .tableGrid {
     grid-template-columns: repeat(4, 1fr);
   }
 
