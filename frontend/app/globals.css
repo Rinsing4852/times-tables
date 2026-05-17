@@ -113,6 +113,10 @@ h2 {
   gap: 8px;
 }
 
+.modeSelect {
+  display: none;
+}
+
 .tabs button {
   background: #dfe8f4;
   color: var(--ink);
@@ -230,6 +234,36 @@ h2 {
 
 .answerRow button {
   min-height: 68px;
+}
+
+.numberPad {
+  width: min(360px, 100%);
+  display: none;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.numberPad button {
+  min-height: 54px;
+  padding: 0;
+  background: #edf2f7;
+  color: var(--ink);
+  font-size: 1.25rem;
+  border: 2px solid #d4dfec;
+}
+
+.numberPad button:active {
+  transform: translateY(1px);
+}
+
+.numberPad .utility {
+  background: #dfe8f4;
+}
+
+.numberPad .enter {
+  grid-column: 1 / -1;
+  background: var(--blue);
+  color: white;
 }
 
 .feedback {
@@ -515,25 +549,95 @@ h2 {
 
 @media (max-width: 520px) {
   .shell {
-    padding: 12px;
+    padding: 10px;
+    overflow-x: hidden;
   }
 
   h1 {
-    font-size: 2rem;
+    font-size: 1.85rem;
   }
 
-  .tabs,
   .profileForm,
   .metricGrid,
   .answerRow {
     grid-template-columns: 1fr;
   }
 
+  .tabs {
+    display: none;
+  }
+
+  .modeSelect {
+    display: grid;
+    gap: 6px;
+    color: var(--muted);
+    font-weight: 900;
+  }
+
   .tableGrid {
     grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+  }
+
+  .panel,
+  .practiceSurface {
+    padding: 14px;
+  }
+
+  .workspace {
+    gap: 10px;
+  }
+
+  .topbar {
+    padding: 12px 0;
+    gap: 10px;
   }
 
   .questionText {
-    font-size: 3.4rem;
+    font-size: 3rem;
+  }
+
+  .practiceSurface {
+    min-height: auto;
+    gap: 10px;
+  }
+
+  .practiceControls {
+    gap: 8px;
+  }
+
+  .segmented {
+    grid-template-columns: repeat(3, 48px);
+  }
+
+  .segmented button {
+    min-height: 38px;
+    padding: 0;
+  }
+
+  .answerRow {
+    gap: 8px;
+  }
+
+  .answerRow input,
+  .answerRow button {
+    min-height: 56px;
+  }
+
+  .answerRow input {
+    font-size: 1.7rem;
+  }
+
+  .numberPad {
+    display: grid;
+  }
+
+  .heatHeader,
+  .heatCorner {
+    min-height: 36px;
+  }
+
+  .heatCell {
+    min-height: 48px;
   }
 }

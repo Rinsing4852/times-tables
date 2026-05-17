@@ -118,6 +118,14 @@ export default function Home() {
             </button>
           ))}
         </nav>
+        <label className="modeSelect">
+          Mode
+          <select value={tab} onChange={(event) => setTab(event.target.value as "practice" | "challenge" | "dashboard")}>
+            <option value="practice">Practice</option>
+            <option value="challenge">Challenge</option>
+            <option value="dashboard">Dashboard</option>
+          </select>
+        </label>
 
         {!activeUser ? (
           <div className="emptyState">Create a profile to begin.</div>
@@ -192,8 +200,7 @@ function PracticeMode({ user, tables }: { user: User; tables: number[] }) {
     setTimeout(loadQuestion, 0);
   }
 
-  async function submit(event: FormEvent) {
-    event.preventDefault();
+  async function submitAnswer() {
     if (!question || answer.trim() === "") return;
     const elapsed = Date.now() - startedAtRef.current;
     const result = await api<{ correct: boolean; correct_answer: number }>("/practice/answer", {
@@ -222,6 +229,28 @@ function PracticeMode({ user, tables }: { user: User; tables: number[] }) {
     }
     setFeedback(`Answer: ${result.correct_answer}`);
     finishQuestion(1100);
+  }
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    submitAnswer();
+  }
+
+  function pressNumberPad(key: string) {
+    if (sessionDone) return;
+    if (key === "backspace") {
+      setAnswer((current) => current.slice(0, -1));
+      return;
+    }
+    if (key === "clear") {
+      setAnswer("");
+      return;
+    }
+    if (key === "enter") {
+      submitAnswer();
+      return;
+    }
+    setAnswer((current) => `${current}${key}`.slice(0, 4));
   }
 
   return (
@@ -270,6 +299,7 @@ function PracticeMode({ user, tables }: { user: User; tables: number[] }) {
             />
             <button type="submit">Check</button>
           </form>
+          <NumberPad onPress={pressNumberPad} />
           <div className={`feedback ${feedback.startsWith("Answer") ? "wrong" : ""}`}>{feedback}</div>
         </>
       )}
@@ -301,8 +331,7 @@ function ChallengeMode({ user, tables }: { user: User; tables: number[] }) {
     setTimeout(() => inputRef.current?.focus(), 0);
   }
 
-  async function submit(event: FormEvent) {
-    event.preventDefault();
+  async function submitAnswer() {
     const current = questions[index];
     if (!current || answer.trim() === "") return;
     const nextAnswers = [
@@ -322,6 +351,27 @@ function ChallengeMode({ user, tables }: { user: User; tables: number[] }) {
     });
     setQuestions([]);
     setResult(data);
+  }
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    submitAnswer();
+  }
+
+  function pressNumberPad(key: string) {
+    if (key === "backspace") {
+      setAnswer((current) => current.slice(0, -1));
+      return;
+    }
+    if (key === "clear") {
+      setAnswer("");
+      return;
+    }
+    if (key === "enter") {
+      submitAnswer();
+      return;
+    }
+    setAnswer((current) => `${current}${key}`.slice(0, 4));
   }
 
   const current = questions[index];
@@ -349,6 +399,7 @@ function ChallengeMode({ user, tables }: { user: User; tables: number[] }) {
             <input ref={inputRef} inputMode="numeric" pattern="[0-9]*" value={answer} onChange={(event) => setAnswer(event.target.value)} />
             <button type="submit">Next</button>
           </form>
+          <NumberPad onPress={pressNumberPad} />
         </div>
       )}
       {result && <ChallengeResults result={result} onRestart={start} />}
@@ -398,6 +449,21 @@ function ChallengeResults({ result, onRestart }: { result: ChallengeResult; onRe
         </div>
       )}
       <button type="button" onClick={onRestart}>Run again</button>
+    </div>
+  );
+}
+
+function NumberPad({ onPress }: { onPress: (key: string) => void }) {
+  return (
+    <div className="numberPad" aria-label="Number pad">
+      {["1", "2", "3", "4", "5", "6", "7", "8", "9", "clear", "0", "backspace"].map((key) => (
+        <button key={key} type="button" className={key.length > 1 ? "utility" : ""} onClick={() => onPress(key)}>
+          {key === "backspace" ? "⌫" : key === "clear" ? "C" : key}
+        </button>
+      ))}
+      <button type="button" className="enter" onClick={() => onPress("enter")}>
+        Enter
+      </button>
     </div>
   );
 }
