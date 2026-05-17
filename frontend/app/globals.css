@@ -616,6 +616,14 @@ h2 {
   .tableGrid {
     grid-template-columns: repeat(6, 1fr);
   }
+
+  .numberPad {
+    display: grid;
+  }
+
+  .answerRow input {
+    min-height: 62px;
+  }
 }
 
 @media (max-width: 520px) {
