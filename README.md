@@ -23,6 +23,8 @@ Then open:
 - Backend API: http://localhost:8000
 - API health check: http://localhost:8000/health
 
+The local development compose file exposes both services to your machine for easier debugging. For Unraid/Dockge, use the hardened compose file below so only the frontend is exposed.
+
 Stop the app:
 
 ```bash
@@ -77,7 +79,7 @@ Backend:
 cd backend
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
@@ -89,10 +91,10 @@ npm install
 npm run dev
 ```
 
-The frontend expects the backend at `http://localhost:8000`. To override it, set:
+By default, the frontend browser calls relative paths under `/backend-api`, and the Next.js server proxies those requests to the backend. For local development this falls back to `http://localhost:8000`. To override the server-side backend target, set:
 
 ```bash
-NEXT_PUBLIC_API_URL=http://localhost:8000
+BACKEND_INTERNAL_URL=http://localhost:8000
 ```
 
 ## Tests

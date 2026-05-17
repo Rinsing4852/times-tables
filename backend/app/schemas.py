@@ -1,4 +1,15 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field
+
+QuestionType = Literal[
+    "multiply_ab",
+    "multiply_ba",
+    "divide_product_by_a",
+    "divide_product_by_b",
+    "missing_b",
+    "missing_a",
+]
 
 
 class UserCreate(BaseModel):
@@ -20,10 +31,10 @@ class TablesRequest(BaseModel):
 class PracticeAnswer(BaseModel):
     user_id: int
     fact_id: int
-    question_type: str
-    answer: str
+    question_type: QuestionType
+    answer: str = Field(max_length=32)
     attempt_number: int = Field(ge=1, le=2)
-    response_time_ms: int = Field(ge=0)
+    response_time_ms: int = Field(ge=0, le=3_600_000)
 
 
 class ChallengeStart(BaseModel):
@@ -34,12 +45,12 @@ class ChallengeStart(BaseModel):
 
 class ChallengeAnswer(BaseModel):
     fact_id: int
-    question_type: str
-    answer: str
-    response_time_ms: int = Field(ge=0)
+    question_type: QuestionType
+    answer: str = Field(max_length=32)
+    response_time_ms: int = Field(ge=0, le=3_600_000)
 
 
 class ChallengeSubmit(BaseModel):
     user_id: int
     tables: list[int] = Field(min_length=1)
-    answers: list[ChallengeAnswer] = Field(min_length=1)
+    answers: list[ChallengeAnswer] = Field(min_length=1, max_length=100)
