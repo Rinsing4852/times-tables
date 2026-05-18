@@ -25,6 +25,14 @@ class User(Base):
     last_practised_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     total_questions_answered: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     total_sessions_completed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    xp: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    level: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    stage: Mapped[str] = mapped_column(String(32), nullable=False, default="Egg")
+    unlocked_cosmetics: Mapped[str] = mapped_column(String(512), nullable=False, default='["starter-star"]')
+    selected_cosmetic: Mapped[str] = mapped_column(String(64), nullable=False, default="starter-star")
+    weekly_practice_days: Mapped[str] = mapped_column(String(256), nullable=False, default="[]")
+    last_weekly_reset_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    weekly_goal_awarded_week: Mapped[str] = mapped_column(String(16), nullable=False, default="")
 
     attempts: Mapped[list["QuestionAttempt"]] = relationship(back_populates="user")
 

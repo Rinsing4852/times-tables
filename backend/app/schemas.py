@@ -63,5 +63,15 @@ class CreatureUpdate(BaseModel):
     creature_name: str = Field(min_length=1, max_length=80)
 
 
+class CreatureCosmeticUpdate(BaseModel):
+    selected_cosmetic: str = Field(min_length=1, max_length=64)
+
+
 class CreatureSessionComplete(BaseModel):
     questions_completed: int = Field(ge=1, le=100)
+    mode: Literal["practice", "challenge"] = "practice"
+    first_attempt_correct: int = Field(default=0, ge=0, le=100)
+    second_attempt_correct: int = Field(default=0, ge=0, le=100)
+    practiced_weak_fact: bool = False
+    improved_fact_accuracy: bool = False
+    practiced_division: bool = False

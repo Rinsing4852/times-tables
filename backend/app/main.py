@@ -15,10 +15,29 @@ from .adaptive import (
     priority_score,
     question_for_fact,
 )
-from .creatures import CREATURE_TYPES, creature_payload, decayed_energy, energy_gain_for_questions
+from .creatures import (
+    CREATURE_TYPES,
+    add_weekly_practice_day,
+    cosmetic_list,
+    creature_payload,
+    decayed_energy,
+    energy_gain_for_questions,
+    session_rewards,
+    sync_level_and_stage,
+    unlock_cosmetics,
+)
 from .database import Base, SessionLocal, engine, get_db
 from .models import ChallengeAttempt, ChallengeSession, Fact, FactStat, QuestionAttempt, User
-from .schemas import ChallengeStart, ChallengeSubmit, CreatureSessionComplete, CreatureUpdate, PracticeAnswer, TablesRequest, UserCreate
+from .schemas import (
+    ChallengeStart,
+    ChallengeSubmit,
+    CreatureCosmeticUpdate,
+    CreatureSessionComplete,
+    CreatureUpdate,
+    PracticeAnswer,
+    TablesRequest,
+    UserCreate,
+)
 from .seed import seed_facts
 
 app = FastAPI(title="Recall Forge API")
@@ -52,6 +71,14 @@ def migrate_user_creature_columns() -> None:
         "last_practised_at": "ALTER TABLE users ADD COLUMN last_practised_at DATETIME",
         "total_questions_answered": "ALTER TABLE users ADD COLUMN total_questions_answered INTEGER NOT NULL DEFAULT 0",
         "total_sessions_completed": "ALTER TABLE users ADD COLUMN total_sessions_completed INTEGER NOT NULL DEFAULT 0",
+        "xp": "ALTER TABLE users ADD COLUMN xp INTEGER NOT NULL DEFAULT 0",
+        "level": "ALTER TABLE users ADD COLUMN level INTEGER NOT NULL DEFAULT 1",
+        "stage": "ALTER TABLE users ADD COLUMN stage VARCHAR(32) NOT NULL DEFAULT 'Egg'",
+        "unlocked_cosmetics": "ALTER TABLE users ADD COLUMN unlocked_cosmetics VARCHAR(512) NOT NULL DEFAULT '[\"starter-star\"]'",
+        "selected_cosmetic": "ALTER TABLE users ADD COLUMN selected_cosmetic VARCHAR(64) NOT NULL DEFAULT 'starter-star'",
+        "weekly_practice_days": "ALTER TABLE users ADD COLUMN weekly_practice_days VARCHAR(256) NOT NULL DEFAULT '[]'",
+        "last_weekly_reset_at": "ALTER TABLE users ADD COLUMN last_weekly_reset_at DATETIME",
+        "weekly_goal_awarded_week": "ALTER TABLE users ADD COLUMN weekly_goal_awarded_week VARCHAR(16) NOT NULL DEFAULT ''",
     }
     with engine.begin() as connection:
         for column, statement in migrations.items():
@@ -105,6 +132,21 @@ def record_stat(stat: FactStat, is_correct: bool, attempt_number: int, response_
     stat.total_response_time_ms += response_time_ms
     stat.response_count += 1
     stat.last_seen = now
+
+
+def learning_event_for_stat(stat: FactStat, is_correct: bool, question_type: str) -> dict:
+    total = stat.correct_count + stat.incorrect_count
+    previous_accuracy = stat.correct_count / total if total else None
+    previous_error_rate = stat.incorrect_count / total if total else 0
+    next_correct = stat.correct_count + int(is_correct)
+    next_incorrect = stat.incorrect_count + int(not is_correct)
+    next_total = next_correct + next_incorrect
+    next_accuracy = next_correct / next_total if next_total else 0
+    return {
+        "practiced_weak_fact": total >= 3 and previous_error_rate >= 0.35,
+        "improved_fact_accuracy": bool(is_correct and previous_accuracy is not None and next_accuracy > previous_accuracy),
+        "practiced_division": question_type.startswith("divide_"),
+    }
 
 
 @app.get("/health")
@@ -162,18 +204,71 @@ def update_creature(user_id: int, payload: CreatureUpdate, db: Session = Depends
     return creature_payload(user)
 
 
+@app.put("/users/{user_id}/creature/cosmetic")
+def update_creature_cosmetic(user_id: int, payload: CreatureCosmeticUpdate, db: Session = Depends(get_db)) -> dict:
+    user = get_user(db, user_id)
+    if payload.selected_cosmetic not in cosmetic_list(user):
+        raise HTTPException(status_code=400, detail="Cosmetic is not unlocked yet")
+    user.selected_cosmetic = payload.selected_cosmetic
+    db.commit()
+    db.refresh(user)
+    return creature_payload(user)
+
+
 @app.post("/users/{user_id}/creature/session-complete")
 def complete_creature_session(user_id: int, payload: CreatureSessionComplete, db: Session = Depends(get_db)) -> dict:
     user = get_user(db, user_id)
     now = datetime.now(timezone.utc)
+    previous_level, previous_stage, _, _ = sync_level_and_stage(user)
     energy_gained = energy_gain_for_questions(payload.questions_completed)
+    weekly_days_completed, weekly_goal_completed = add_weekly_practice_day(user, now)
+    xp_gained, reward_reasons = session_rewards(
+        mode=payload.mode,
+        questions_completed=payload.questions_completed,
+        first_attempt_correct=payload.first_attempt_correct,
+        second_attempt_correct=payload.second_attempt_correct,
+        practiced_weak_fact=payload.practiced_weak_fact,
+        improved_fact_accuracy=payload.improved_fact_accuracy,
+        practiced_division=payload.practiced_division,
+        weekly_goal_completed=weekly_goal_completed,
+    )
     user.energy = min(100, decayed_energy(user, now) + energy_gained)
+    user.xp = (user.xp or 0) + xp_gained
     user.last_practised_at = now
     user.total_questions_answered = (user.total_questions_answered or 0) + payload.questions_completed
     user.total_sessions_completed = (user.total_sessions_completed or 0) + 1
+    _, _, new_level, new_stage = sync_level_and_stage(user)
+    cosmetic_keys = []
+    if user.total_sessions_completed >= 1:
+        cosmetic_keys.append("spark-hat")
+    if user.total_sessions_completed >= 5:
+        cosmetic_keys.append("training-badge")
+    if user.total_sessions_completed >= 10:
+        cosmetic_keys.append("number-stones")
+    if weekly_goal_completed or weekly_days_completed >= 4:
+        cosmetic_keys.append("rhythm-stars")
+    if payload.improved_fact_accuracy or payload.practiced_weak_fact:
+        cosmetic_keys.append("growth-trail")
+    if payload.mode == "challenge":
+        cosmetic_keys.append("challenge-crest")
+    if payload.practiced_division:
+        cosmetic_keys.append("division-stones")
+    new_unlocks = unlock_cosmetics(user, cosmetic_keys)
+    stage_message = ""
+    if new_stage != previous_stage:
+        stage_message = f"{user.creature_name} has reached the {new_stage} stage."
+    elif new_level > previous_level:
+        stage_message = f"{user.creature_name} grew stronger."
     db.commit()
     db.refresh(user)
-    return creature_payload(user, energy_gained=energy_gained)
+    return creature_payload(
+        user,
+        energy_gained=energy_gained,
+        xp_gained=xp_gained,
+        reward_reasons=reward_reasons,
+        new_unlocks=new_unlocks,
+        stage_message=stage_message,
+    )
 
 
 @app.get("/facts")
@@ -225,9 +320,10 @@ def answer_practice_question(payload: PracticeAnswer, db: Session = Depends(get_
     )
     db.add(attempt)
     stat = get_or_create_stat(db, payload.user_id, fact.id)
+    learning_event = learning_event_for_stat(stat, is_correct, payload.question_type)
     record_stat(stat, is_correct, payload.attempt_number, payload.response_time_ms)
     db.commit()
-    return {"correct": is_correct, "correct_answer": correct_answer, "prompt": prompt}
+    return {"correct": is_correct, "correct_answer": correct_answer, "prompt": prompt, "learning_event": learning_event}
 
 
 @app.post("/challenge/start")
@@ -269,6 +365,10 @@ def submit_challenge(payload: ChallengeSubmit, db: Session = Depends(get_db)) ->
 
     results = []
     correct_count = 0
+    first_attempt_correct = 0
+    practiced_weak_fact = False
+    improved_fact_accuracy = False
+    practiced_division = False
     for answer in payload.answers:
         fact = db.get(Fact, answer.fact_id)
         if not fact:
@@ -276,6 +376,7 @@ def submit_challenge(payload: ChallengeSubmit, db: Session = Depends(get_db)) ->
         prompt, correct_answer = question_for_fact(fact, answer.question_type)
         is_correct = normalize_answer(answer.answer) == correct_answer
         correct_count += int(is_correct)
+        first_attempt_correct += int(is_correct)
         db.add(
             ChallengeAttempt(
                 session_id=session.id,
@@ -303,6 +404,10 @@ def submit_challenge(payload: ChallengeSubmit, db: Session = Depends(get_db)) ->
             )
         )
         stat = get_or_create_stat(db, payload.user_id, fact.id)
+        learning_event = learning_event_for_stat(stat, is_correct, answer.question_type)
+        practiced_weak_fact = practiced_weak_fact or learning_event["practiced_weak_fact"]
+        improved_fact_accuracy = improved_fact_accuracy or learning_event["improved_fact_accuracy"]
+        practiced_division = practiced_division or learning_event["practiced_division"]
         record_stat(stat, is_correct, 1, answer.response_time_ms)
         results.append(
             {
@@ -348,6 +453,13 @@ def submit_challenge(payload: ChallengeSubmit, db: Session = Depends(get_db)) ->
         "slowest": slowest,
         "incorrect_answers": incorrect,
         "previous_10": previous_summaries,
+        "creature_events": {
+            "first_attempt_correct": first_attempt_correct,
+            "second_attempt_correct": 0,
+            "practiced_weak_fact": practiced_weak_fact,
+            "improved_fact_accuracy": improved_fact_accuracy,
+            "practiced_division": practiced_division,
+        },
     }
 
 

@@ -158,7 +158,7 @@ h2 {
 
 .tabs {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 8px;
 }
 
@@ -403,18 +403,130 @@ h2 {
   font-weight: 800;
 }
 
-.energyBar {
+.energyBar,
+.xpBar {
   height: 18px;
   overflow: hidden;
   border-radius: 999px;
   background: #dfe8f4;
 }
 
-.energyBar span {
+.energyBar span,
+.xpBar span {
   display: block;
   height: 100%;
   border-radius: inherit;
+}
+
+.energyBar span {
   background: linear-gradient(90deg, #27a269, #f2d133);
+}
+
+.xpBar span {
+  background: linear-gradient(90deg, #2563eb, #7c3aed);
+}
+
+.profileButton {
+  width: fit-content;
+  justify-self: center;
+}
+
+.creatureProfile {
+  display: grid;
+  gap: 16px;
+}
+
+.cosmeticGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.cosmeticItem {
+  min-height: 108px;
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  background: #edf2f7;
+  border: 2px solid transparent;
+  color: var(--ink);
+  text-align: left;
+}
+
+.cosmeticItem:hover,
+.cosmeticItem.selected {
+  background: #dbeafe;
+  border-color: var(--blue);
+}
+
+.cosmeticItem span,
+.cosmeticItem small {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.creatureAvatar.spark-hat::after {
+  content: "";
+  width: 72px;
+  height: 30px;
+  position: absolute;
+  left: 30px;
+  top: -18px;
+  border-radius: 50px 50px 12px 12px;
+  background: #f2d133;
+  border: 4px solid rgba(24, 33, 47, 0.16);
+}
+
+.creatureAvatar.training-badge::after,
+.creatureAvatar.challenge-crest::after {
+  content: "";
+  width: 28px;
+  height: 28px;
+  position: absolute;
+  right: 14px;
+  bottom: 18px;
+  border-radius: 50%;
+  background: #2563eb;
+  border: 4px solid white;
+}
+
+.creatureAvatar.challenge-crest::after {
+  background: #d88912;
+}
+
+.creatureAvatar.growth-trail {
+  box-shadow: -18px 18px 0 rgba(39, 162, 105, 0.18), inset -14px -16px 0 rgba(24, 33, 47, 0.12);
+}
+
+.creatureAvatar.number-stones::after,
+.creatureAvatar.division-stones::after {
+  content: "×";
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  position: absolute;
+  left: -10px;
+  bottom: 12px;
+  border-radius: 50%;
+  background: #e7eef7;
+  color: var(--ink);
+  font-weight: 900;
+  border: 3px solid white;
+}
+
+.creatureAvatar.division-stones::after {
+  content: "÷";
+}
+
+.creatureAvatar.rhythm-stars::after {
+  content: "★";
+  position: absolute;
+  right: -12px;
+  top: 12px;
+  color: #f2d133;
+  font-size: 2.2rem;
+  text-shadow: 0 2px 0 rgba(24, 33, 47, 0.18);
 }
 
 .homeActions {
@@ -816,7 +928,8 @@ h2 {
 
   .profileForm,
   .metricGrid,
-  .homeActions {
+  .homeActions,
+  .cosmeticGrid {
     grid-template-columns: 1fr 1fr;
   }
 
@@ -854,7 +967,8 @@ h2 {
   .profileForm,
   .metricGrid,
   .answerRow,
-  .homeActions {
+  .homeActions,
+  .cosmeticGrid {
     grid-template-columns: 1fr;
   }
 

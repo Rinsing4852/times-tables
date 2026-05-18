@@ -12,12 +12,37 @@ type Creature = {
   energy: number;
   stage: string;
   level: number;
+  xp: number;
+  xp_gained: number;
+  xp_current_level: number;
+  xp_next_level: number;
+  xp_to_next_level: number;
+  xp_progress: number;
   status_message: string;
   energy_gained: number;
+  stage_message: string;
+  reward_reasons: string[];
   total_questions_answered: number;
   total_sessions_completed: number;
+  weekly_goal_days: number;
+  weekly_practice_days_completed: number;
+  weekly_goal_completed: boolean;
+  unlocked_cosmetics: Cosmetic[];
+  selected_cosmetic: string;
+  new_unlocks: Cosmetic[];
 };
+type Cosmetic = { key: string; name: string; kind: string; unlock: string };
 type Question = { fact_id: number; question_type: string; prompt: string; priority_score?: number };
+type LearningEvent = { practiced_weak_fact: boolean; improved_fact_accuracy: boolean; practiced_division: boolean };
+type CreatureSessionPayload = {
+  questions_completed: number;
+  mode: "practice" | "challenge";
+  first_attempt_correct: number;
+  second_attempt_correct: number;
+  practiced_weak_fact: boolean;
+  improved_fact_accuracy: boolean;
+  practiced_division: boolean;
+};
 type DashboardCell = {
   fact_id: number;
   a: number;
@@ -47,6 +72,13 @@ type ChallengeResult = {
   slowest: ResultQuestion;
   incorrect_answers: ResultQuestion[];
   previous_10: { id: number; accuracy: number; total_time_ms: number; average_time_ms: number; created_at: string }[];
+  creature_events: {
+    first_attempt_correct: number;
+    second_attempt_correct: number;
+    practiced_weak_fact: boolean;
+    improved_fact_accuracy: boolean;
+    practiced_division: boolean;
+  };
 };
 type ResultQuestion = {
   prompt: string;
@@ -55,14 +87,18 @@ type ResultQuestion = {
   is_correct: boolean;
   response_time_ms: number;
 };
-type Mode = "home" | "practice" | "challenge" | "dashboard";
+type Mode = "home" | "practice" | "challenge" | "profile" | "dashboard";
 type PracticeSummary = {
   attempted: number;
   correct: number;
   secondTryCorrect: number;
   energyGained: number;
+  xpGained: number;
   creatureStatus: string;
   creatureName: string;
+  stageMessage: string;
+  rewardReasons: string[];
+  newUnlocks: Cosmetic[];
 };
 
 const DEFAULT_TABLES = [2, 3, 4, 5];
@@ -127,14 +163,23 @@ export default function Home() {
     setCreature(updated);
   }
 
-  async function completeCreatureSession(questionsCompleted: number) {
+  async function completeCreatureSession(payload: CreatureSessionPayload) {
     if (!activeUser) return null;
     const updated = await api<Creature>(`/users/${activeUser.id}/creature/session-complete`, {
       method: "POST",
-      body: JSON.stringify({ questions_completed: questionsCompleted })
+      body: JSON.stringify(payload)
     });
     setCreature(updated);
     return updated;
+  }
+
+  async function selectCosmetic(selectedCosmetic: string) {
+    if (!activeUser) return;
+    const updated = await api<Creature>(`/users/${activeUser.id}/creature/cosmetic`, {
+      method: "PUT",
+      body: JSON.stringify({ selected_cosmetic: selectedCosmetic })
+    });
+    setCreature(updated);
   }
 
   function startPracticeSession(limit: number) {
@@ -177,7 +222,7 @@ export default function Home() {
 
       <section className="workspace">
         <nav className="tabs" aria-label="Modes">
-          {(["home", "practice", "challenge", "dashboard"] as const).map((item) => (
+          {(["home", "practice", "challenge", "profile", "dashboard"] as const).map((item) => (
             <button key={item} className={tab === item ? "active" : ""} onClick={() => setTab(item)} type="button">
               {item[0].toUpperCase() + item.slice(1)}
             </button>
@@ -189,6 +234,7 @@ export default function Home() {
             <option value="home">Home</option>
             <option value="practice">Practice</option>
             <option value="challenge">Challenge</option>
+            <option value="profile">Profile</option>
             <option value="dashboard">Dashboard</option>
           </select>
         </label>
@@ -208,6 +254,7 @@ export default function Home() {
                 onUpdateCreature={updateCreature}
                 onStartPractice={startPracticeSession}
                 onStartChallenge={startChallengeRound}
+                onShowProfile={() => setTab("profile")}
               />
             )}
             {tab === "practice" && (
@@ -230,6 +277,7 @@ export default function Home() {
                 onShowDashboard={() => setTab("dashboard")}
               />
             )}
+            {tab === "profile" && <CreatureProfile creature={creature} onSelectCosmetic={selectCosmetic} />}
             {tab === "dashboard" && <DashboardView dashboard={dashboard} tables={tables} />}
           </>
         )}
@@ -243,12 +291,14 @@ function CreatureHome({
   creature,
   onUpdateCreature,
   onStartPractice,
-  onStartChallenge
+  onStartChallenge,
+  onShowProfile
 }: {
   creature: Creature | null;
   onUpdateCreature: (creatureType: string, creatureName: string) => Promise<void>;
   onStartPractice: (limit: number) => void;
   onStartChallenge: (limit: number) => void;
+  onShowProfile: () => void;
 }) {
   const [creatureType, setCreatureType] = useState(creature?.creature_type || "Blob");
   const [creatureName, setCreatureName] = useState(creature?.creature_name || "");
@@ -271,7 +321,7 @@ function CreatureHome({
     <section className="creatureHome">
       <div className="creatureCard">
         <div className="creatureAvatarWrap">
-          <CreatureAvatar type={creature.creature_type} />
+          <CreatureAvatar type={creature.creature_type} cosmetic={creature.selected_cosmetic} />
         </div>
         <div className="creatureInfo">
           <p className="eyebrow">{creature.creature_type}</p>
@@ -279,11 +329,18 @@ function CreatureHome({
           <p className="stageLine">
             Level {creature.level} · {creature.stage}
           </p>
+          <div className="xpBar" aria-label={`XP progress ${Math.round(creature.xp_progress * 100)} percent`}>
+            <span style={{ width: `${Math.round(creature.xp_progress * 100)}%` }} />
+          </div>
+          <strong>{creature.xp} XP · {creature.xp_to_next_level} XP to next level</strong>
           <div className="energyBar" aria-label={`Energy ${creature.energy} percent`}>
             <span style={{ width: `${creature.energy}%` }} />
           </div>
           <strong>{creature.energy} energy</strong>
           <p className="creatureStatus">{creature.status_message}</p>
+          <p className="creatureStatus">
+            Weekly training goal: {Math.min(creature.weekly_practice_days_completed, creature.weekly_goal_days)} of {creature.weekly_goal_days} practice days completed.
+          </p>
         </div>
       </div>
 
@@ -301,6 +358,9 @@ function CreatureHome({
           <span>20 questions</span>
         </button>
       </div>
+      <button className="secondaryButton profileButton" type="button" onClick={onShowProfile}>
+        View creature profile
+      </button>
 
       <form className="panel creatureSetup" onSubmit={saveCreature}>
         <h2>Companion setup</h2>
@@ -325,13 +385,78 @@ function CreatureHome({
   );
 }
 
-function CreatureAvatar({ type }: { type: string }) {
+function CreatureAvatar({ type, cosmetic = "starter-star" }: { type: string; cosmetic?: string }) {
   return (
-    <div className={`creatureAvatar ${type.toLowerCase().replaceAll(" ", "-")}`}>
+    <div className={`creatureAvatar ${type.toLowerCase().replaceAll(" ", "-")} ${cosmetic}`}>
       <span className="eye left" />
       <span className="eye right" />
       <span className="mark" />
     </div>
+  );
+}
+
+function CreatureProfile({ creature, onSelectCosmetic }: { creature: Creature | null; onSelectCosmetic: (key: string) => Promise<void> }) {
+  const [message, setMessage] = useState("");
+
+  if (!creature) return <section className="panel">Loading creature profile...</section>;
+
+  async function chooseCosmetic(key: string) {
+    await onSelectCosmetic(key);
+    const selected = creature?.unlocked_cosmetics.find((item) => item.key === key);
+    setMessage(`${selected?.name || "Cosmetic"} selected.`);
+  }
+
+  return (
+    <section className="creatureProfile">
+      <div className="creatureCard">
+        <div className="creatureAvatarWrap">
+          <CreatureAvatar type={creature.creature_type} cosmetic={creature.selected_cosmetic} />
+        </div>
+        <div className="creatureInfo">
+          <p className="eyebrow">{creature.creature_type}</p>
+          <h2>{creature.creature_name}</h2>
+          <p className="stageLine">
+            Level {creature.level} · {creature.stage}
+          </p>
+          <div className="xpBar" aria-label={`XP progress ${Math.round(creature.xp_progress * 100)} percent`}>
+            <span style={{ width: `${Math.round(creature.xp_progress * 100)}%` }} />
+          </div>
+          <strong>
+            {creature.xp} XP · {creature.xp_to_next_level} XP to Level {creature.level + 1}
+          </strong>
+          <p className="creatureStatus">The creature grows stronger as your maths brain grows stronger.</p>
+        </div>
+      </div>
+
+      <div className="metricGrid">
+        <Metric label="Sessions" value={`${creature.total_sessions_completed}`} />
+        <Metric label="Questions" value={`${creature.total_questions_answered}`} />
+        <Metric label="Weekly goal" value={`${Math.min(creature.weekly_practice_days_completed, creature.weekly_goal_days)}/${creature.weekly_goal_days}`} />
+        <Metric label="Cosmetics" value={`${creature.unlocked_cosmetics.length}`} />
+      </div>
+
+      <section className="panel">
+        <div className="sectionHeader">
+          <h2>Cosmetics</h2>
+          <span className="quiet">Selected: {creature.unlocked_cosmetics.find((item) => item.key === creature.selected_cosmetic)?.name || "Starter Star"}</span>
+        </div>
+        <div className="cosmeticGrid">
+          {creature.unlocked_cosmetics.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              className={`cosmeticItem ${creature.selected_cosmetic === item.key ? "selected" : ""}`}
+              onClick={() => chooseCosmetic(item.key)}
+            >
+              <strong>{item.name}</strong>
+              <span>{item.kind}</span>
+              <small>{item.unlock}</small>
+            </button>
+          ))}
+        </div>
+        {message && <p className="feedback">{message}</p>}
+      </section>
+    </section>
   );
 }
 
@@ -347,7 +472,7 @@ function PracticeMode({
   tables: number[];
   initialLimit: number;
   creature: Creature | null;
-  onSessionComplete: (questionsCompleted: number) => Promise<Creature | null>;
+  onSessionComplete: (payload: CreatureSessionPayload) => Promise<Creature | null>;
   onShowDashboard: () => void;
 }) {
   const [question, setQuestion] = useState<Question | null>(null);
@@ -357,7 +482,11 @@ function PracticeMode({
   const [questionLimit, setQuestionLimit] = useState(initialLimit);
   const [completedCount, setCompletedCount] = useState(0);
   const [correctCount, setCorrectCount] = useState(0);
+  const [firstAttemptCorrectCount, setFirstAttemptCorrectCount] = useState(0);
   const [secondTryCorrectCount, setSecondTryCorrectCount] = useState(0);
+  const [practicedWeakFact, setPracticedWeakFact] = useState(false);
+  const [improvedFactAccuracy, setImprovedFactAccuracy] = useState(false);
+  const [practicedDivision, setPracticedDivision] = useState(false);
   const [sessionDone, setSessionDone] = useState(false);
   const [summary, setSummary] = useState<PracticeSummary | null>(null);
   const startedAtRef = useRef(0);
@@ -384,23 +513,43 @@ function PracticeMode({
   useEffect(() => {
     setCompletedCount(0);
     setCorrectCount(0);
+    setFirstAttemptCorrectCount(0);
     setSecondTryCorrectCount(0);
+    setPracticedWeakFact(false);
+    setImprovedFactAccuracy(false);
+    setPracticedDivision(false);
     setSessionDone(false);
     setSummary(null);
     loadQuestion().catch(() => setFeedback("Could not load a question."));
   }, [loadQuestion, questionLimit]);
 
-  async function finishQuestion(delayMs: number, wasCorrect: boolean) {
+  async function finishQuestion(delayMs: number, wasCorrect: boolean, event: LearningEvent | null) {
     const nextCount = completedCount + 1;
     const nextCorrect = correctCount + (wasCorrect ? 1 : 0);
+    const nextFirstAttemptCorrect = firstAttemptCorrectCount + (wasCorrect && attemptNumber === 1 ? 1 : 0);
     const nextSecondTryCorrect = secondTryCorrectCount + (wasCorrect && attemptNumber === 2 ? 1 : 0);
+    const nextPracticedWeakFact = practicedWeakFact || Boolean(event?.practiced_weak_fact);
+    const nextImprovedFactAccuracy = improvedFactAccuracy || Boolean(event?.improved_fact_accuracy);
+    const nextPracticedDivision = practicedDivision || Boolean(event?.practiced_division);
     setCompletedCount(nextCount);
     setCorrectCount(nextCorrect);
+    setFirstAttemptCorrectCount(nextFirstAttemptCorrect);
     setSecondTryCorrectCount(nextSecondTryCorrect);
+    setPracticedWeakFact(nextPracticedWeakFact);
+    setImprovedFactAccuracy(nextImprovedFactAccuracy);
+    setPracticedDivision(nextPracticedDivision);
     if (nextCount >= questionLimit) {
       let updatedCreature: Creature | null = null;
       try {
-        updatedCreature = await onSessionComplete(questionLimit);
+        updatedCreature = await onSessionComplete({
+          questions_completed: questionLimit,
+          mode: "practice",
+          first_attempt_correct: nextFirstAttemptCorrect,
+          second_attempt_correct: nextSecondTryCorrect,
+          practiced_weak_fact: nextPracticedWeakFact,
+          improved_fact_accuracy: nextImprovedFactAccuracy,
+          practiced_division: nextPracticedDivision
+        });
       } catch {
         updatedCreature = null;
       }
@@ -411,8 +560,12 @@ function PracticeMode({
         correct: nextCorrect,
         secondTryCorrect: nextSecondTryCorrect,
         energyGained: updatedCreature?.energy_gained || 0,
+        xpGained: updatedCreature?.xp_gained || 0,
         creatureStatus: updatedCreature?.status_message || `${creature?.creature_name || "Your companion"} gained energy from your practice.`,
-        creatureName: updatedCreature?.creature_name || creature?.creature_name || "Your companion"
+        creatureName: updatedCreature?.creature_name || creature?.creature_name || "Your companion",
+        stageMessage: updatedCreature?.stage_message || "",
+        rewardReasons: updatedCreature?.reward_reasons || [],
+        newUnlocks: updatedCreature?.new_unlocks || []
       });
       return;
     }
@@ -422,7 +575,11 @@ function PracticeMode({
   function restartSession() {
     setCompletedCount(0);
     setCorrectCount(0);
+    setFirstAttemptCorrectCount(0);
     setSecondTryCorrectCount(0);
+    setPracticedWeakFact(false);
+    setImprovedFactAccuracy(false);
+    setPracticedDivision(false);
     setSessionDone(false);
     setSummary(null);
     setFeedback("");
@@ -434,7 +591,7 @@ function PracticeMode({
   async function submitAnswer() {
     if (!question || answer.trim() === "") return;
     const elapsed = Date.now() - startedAtRef.current;
-    const result = await api<{ correct: boolean; correct_answer: number }>("/practice/answer", {
+    const result = await api<{ correct: boolean; correct_answer: number; learning_event: LearningEvent }>("/practice/answer", {
       method: "POST",
       body: JSON.stringify({
         user_id: user.id,
@@ -447,7 +604,7 @@ function PracticeMode({
     });
     if (result.correct) {
       setFeedback(attemptNumber === 1 ? "Correct." : "Got it on the second try.");
-      finishQuestion(650, true).catch(() => setFeedback("Practice was saved, but energy could not update."));
+      finishQuestion(650, true, result.learning_event).catch(() => setFeedback("Practice was recorded, but energy could not update."));
       return;
     }
     if (attemptNumber === 1) {
@@ -459,7 +616,7 @@ function PracticeMode({
       return;
     }
     setFeedback(`Answer: ${result.correct_answer}`);
-    finishQuestion(1100, false).catch(() => setFeedback("Practice was saved, but energy could not update."));
+    finishQuestion(1100, false, result.learning_event).catch(() => setFeedback("Practice was recorded, but energy could not update."));
   }
 
   function submit(event: FormEvent) {
@@ -513,12 +670,17 @@ function PracticeMode({
           <h2>Practice complete</h2>
           <p>{summary?.creatureName || "Your companion"} gained energy.</p>
           <p>Energy gained: +{summary?.energyGained ?? 0}</p>
+          <p>XP gained: +{summary?.xpGained ?? 0}</p>
+          {summary?.stageMessage && <p>{summary.stageMessage}</p>}
           <p>
             You answered {summary?.correct ?? correctCount} out of {summary?.attempted ?? questionLimit} correctly.
           </p>
           <p>You fixed {summary?.secondTryCorrect ?? secondTryCorrectCount} mistakes on your second try.</p>
           <p>{summary?.creatureStatus}</p>
           <p className="quiet">Mistakes help {summary?.creatureName || "your companion"} learn what to train next.</p>
+          {summary?.newUnlocks && summary.newUnlocks.length > 0 && (
+            <p className="quiet">Unlocked: {summary.newUnlocks.map((item) => item.name).join(", ")}</p>
+          )}
           <div className="actionRow">
             <button type="button" onClick={restartSession}>
               Start again
@@ -567,7 +729,7 @@ function ChallengeMode({
   tables: number[];
   initialCount: number;
   creature: Creature | null;
-  onSessionComplete: (questionsCompleted: number) => Promise<Creature | null>;
+  onSessionComplete: (payload: CreatureSessionPayload) => Promise<Creature | null>;
   onShowDashboard: () => void;
 }) {
   const [count, setCount] = useState(initialCount);
@@ -619,7 +781,15 @@ function ChallengeMode({
     });
     let updatedCreature: Creature | null = null;
     try {
-      updatedCreature = await onSessionComplete(nextAnswers.length);
+      updatedCreature = await onSessionComplete({
+        questions_completed: nextAnswers.length,
+        mode: "challenge",
+        first_attempt_correct: data.creature_events.first_attempt_correct,
+        second_attempt_correct: data.creature_events.second_attempt_correct,
+        practiced_weak_fact: data.creature_events.practiced_weak_fact,
+        improved_fact_accuracy: data.creature_events.improved_fact_accuracy,
+        practiced_division: data.creature_events.practiced_division
+      });
     } catch {
       updatedCreature = null;
     }
@@ -694,6 +864,9 @@ function ChallengeMode({
           creatureName={creatureReward?.creature_name || creature?.creature_name || "Your companion"}
           creatureStatus={creatureReward?.status_message || ""}
           energyGained={creatureReward?.energy_gained || 0}
+          xpGained={creatureReward?.xp_gained || 0}
+          stageMessage={creatureReward?.stage_message || ""}
+          newUnlocks={creatureReward?.new_unlocks || []}
           onRestart={start}
           onShowDashboard={onShowDashboard}
         />
@@ -707,6 +880,9 @@ function ChallengeResults({
   creatureName,
   creatureStatus,
   energyGained,
+  xpGained,
+  stageMessage,
+  newUnlocks,
   onRestart,
   onShowDashboard
 }: {
@@ -714,14 +890,19 @@ function ChallengeResults({
   creatureName: string;
   creatureStatus: string;
   energyGained: number;
+  xpGained: number;
+  stageMessage: string;
+  newUnlocks: Cosmetic[];
   onRestart: () => void;
   onShowDashboard: () => void;
 }) {
   return (
     <div className="results">
       <div className="creatureResult">
-        <strong>{creatureName} gained {energyGained} energy from your challenge.</strong>
+        <strong>{creatureName} gained {energyGained} energy and {xpGained} XP from your challenge.</strong>
+        {stageMessage && <p>{stageMessage}</p>}
         {creatureStatus && <p>{creatureStatus}</p>}
+        {newUnlocks.length > 0 && <p>Unlocked: {newUnlocks.map((item) => item.name).join(", ")}</p>}
       </div>
       <div className="metricGrid">
         <Metric label="Accuracy" value={`${Math.round(result.accuracy * 100)}%`} />
