@@ -5,6 +5,18 @@ import { TableSelector } from "../components/TableSelector";
 import { api } from "../lib/api";
 
 type User = { id: number; name: string };
+type Creature = {
+  user_id: number;
+  creature_type: string;
+  creature_name: string;
+  energy: number;
+  stage: string;
+  level: number;
+  status_message: string;
+  energy_gained: number;
+  total_questions_answered: number;
+  total_sessions_completed: number;
+};
 type Question = { fact_id: number; question_type: string; prompt: string; priority_score?: number };
 type DashboardCell = {
   fact_id: number;
@@ -43,9 +55,18 @@ type ResultQuestion = {
   is_correct: boolean;
   response_time_ms: number;
 };
-type Mode = "practice" | "challenge" | "dashboard";
+type Mode = "home" | "practice" | "challenge" | "dashboard";
+type PracticeSummary = {
+  attempted: number;
+  correct: number;
+  secondTryCorrect: number;
+  energyGained: number;
+  creatureStatus: string;
+  creatureName: string;
+};
 
 const DEFAULT_TABLES = [2, 3, 4, 5];
+const CREATURE_TYPES = ["Blob", "Dragon", "Robot", "Forest Sprite", "Rock Golem", "Space Beast"];
 
 function formatMs(ms: number) {
   if (ms < 1000) return `${ms} ms`;
@@ -55,11 +76,14 @@ function formatMs(ms: number) {
 export default function Home() {
   const [users, setUsers] = useState<User[]>([]);
   const [activeUser, setActiveUser] = useState<User | null>(null);
+  const [creature, setCreature] = useState<Creature | null>(null);
   const [name, setName] = useState("");
-  const [tab, setTab] = useState<Mode>("practice");
+  const [tab, setTab] = useState<Mode>("home");
   const [tables, setTables] = useState<number[]>(DEFAULT_TABLES);
   const [status, setStatus] = useState("");
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
+  const [practicePreset, setPracticePreset] = useState(10);
+  const [challengePreset, setChallengePreset] = useState(20);
 
   async function loadUsers() {
     const data = await api<User[]>("/users");
@@ -77,6 +101,14 @@ export default function Home() {
     }
   }, [activeUser, tab]);
 
+  useEffect(() => {
+    if (!activeUser) {
+      setCreature(null);
+      return;
+    }
+    api<Creature>(`/users/${activeUser.id}/creature`).then(setCreature).catch((error) => setStatus(error.message));
+  }, [activeUser]);
+
   async function createProfile(event: FormEvent) {
     event.preventDefault();
     if (!name.trim()) return;
@@ -84,6 +116,35 @@ export default function Home() {
     setName("");
     await loadUsers();
     setActiveUser(user);
+  }
+
+  async function updateCreature(creatureType: string, creatureName: string) {
+    if (!activeUser || !creatureName.trim()) return;
+    const updated = await api<Creature>(`/users/${activeUser.id}/creature`, {
+      method: "PUT",
+      body: JSON.stringify({ creature_type: creatureType, creature_name: creatureName })
+    });
+    setCreature(updated);
+  }
+
+  async function completeCreatureSession(questionsCompleted: number) {
+    if (!activeUser) return null;
+    const updated = await api<Creature>(`/users/${activeUser.id}/creature/session-complete`, {
+      method: "POST",
+      body: JSON.stringify({ questions_completed: questionsCompleted })
+    });
+    setCreature(updated);
+    return updated;
+  }
+
+  function startPracticeSession(limit: number) {
+    setPracticePreset(limit);
+    setTab("practice");
+  }
+
+  function startChallengeRound(limit: number) {
+    setChallengePreset(limit);
+    setTab("challenge");
   }
 
   return (
@@ -116,7 +177,7 @@ export default function Home() {
 
       <section className="workspace">
         <nav className="tabs" aria-label="Modes">
-          {(["practice", "challenge", "dashboard"] as const).map((item) => (
+          {(["home", "practice", "challenge", "dashboard"] as const).map((item) => (
             <button key={item} className={tab === item ? "active" : ""} onClick={() => setTab(item)} type="button">
               {item[0].toUpperCase() + item.slice(1)}
             </button>
@@ -125,6 +186,7 @@ export default function Home() {
         <label className="modeSelect">
           Mode
           <select value={tab} onChange={(event) => setTab(event.target.value as Mode)}>
+            <option value="home">Home</option>
             <option value="practice">Practice</option>
             <option value="challenge">Challenge</option>
             <option value="dashboard">Dashboard</option>
@@ -140,8 +202,34 @@ export default function Home() {
               <TableSelector selected={tables} onChange={setTables} />
             </details>
 
-            {tab === "practice" && <PracticeMode user={activeUser} tables={tables} onShowDashboard={() => setTab("dashboard")} />}
-            {tab === "challenge" && <ChallengeMode user={activeUser} tables={tables} onShowDashboard={() => setTab("dashboard")} />}
+            {tab === "home" && (
+              <CreatureHome
+                creature={creature}
+                onUpdateCreature={updateCreature}
+                onStartPractice={startPracticeSession}
+                onStartChallenge={startChallengeRound}
+              />
+            )}
+            {tab === "practice" && (
+              <PracticeMode
+                user={activeUser}
+                tables={tables}
+                initialLimit={practicePreset}
+                creature={creature}
+                onSessionComplete={completeCreatureSession}
+                onShowDashboard={() => setTab("dashboard")}
+              />
+            )}
+            {tab === "challenge" && (
+              <ChallengeMode
+                user={activeUser}
+                tables={tables}
+                initialCount={challengePreset}
+                creature={creature}
+                onSessionComplete={completeCreatureSession}
+                onShowDashboard={() => setTab("dashboard")}
+              />
+            )}
             {tab === "dashboard" && <DashboardView dashboard={dashboard} tables={tables} />}
           </>
         )}
@@ -151,14 +239,127 @@ export default function Home() {
   );
 }
 
-function PracticeMode({ user, tables, onShowDashboard }: { user: User; tables: number[]; onShowDashboard: () => void }) {
+function CreatureHome({
+  creature,
+  onUpdateCreature,
+  onStartPractice,
+  onStartChallenge
+}: {
+  creature: Creature | null;
+  onUpdateCreature: (creatureType: string, creatureName: string) => Promise<void>;
+  onStartPractice: (limit: number) => void;
+  onStartChallenge: (limit: number) => void;
+}) {
+  const [creatureType, setCreatureType] = useState(creature?.creature_type || "Blob");
+  const [creatureName, setCreatureName] = useState(creature?.creature_name || "");
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    setCreatureType(creature?.creature_type || "Blob");
+    setCreatureName(creature?.creature_name || "");
+  }, [creature]);
+
+  async function saveCreature(event: FormEvent) {
+    event.preventDefault();
+    await onUpdateCreature(creatureType, creatureName);
+    setMessage(`${creatureName.trim()} is ready for training.`);
+  }
+
+  if (!creature) return <section className="panel">Loading companion...</section>;
+
+  return (
+    <section className="creatureHome">
+      <div className="creatureCard">
+        <div className="creatureAvatarWrap">
+          <CreatureAvatar type={creature.creature_type} />
+        </div>
+        <div className="creatureInfo">
+          <p className="eyebrow">{creature.creature_type}</p>
+          <h2>{creature.creature_name}</h2>
+          <p className="stageLine">
+            Level {creature.level} · {creature.stage}
+          </p>
+          <div className="energyBar" aria-label={`Energy ${creature.energy} percent`}>
+            <span style={{ width: `${creature.energy}%` }} />
+          </div>
+          <strong>{creature.energy} energy</strong>
+          <p className="creatureStatus">{creature.status_message}</p>
+        </div>
+      </div>
+
+      <div className="homeActions">
+        <button type="button" onClick={() => onStartPractice(5)}>
+          Quick Boost
+          <span>5 questions</span>
+        </button>
+        <button type="button" onClick={() => onStartPractice(10)}>
+          Training Session
+          <span>10 questions</span>
+        </button>
+        <button type="button" onClick={() => onStartChallenge(20)}>
+          Challenge Round
+          <span>20 questions</span>
+        </button>
+      </div>
+
+      <form className="panel creatureSetup" onSubmit={saveCreature}>
+        <h2>Companion setup</h2>
+        <label>
+          Creature
+          <select value={creatureType} onChange={(event) => setCreatureType(event.target.value)}>
+            {CREATURE_TYPES.map((type) => (
+              <option key={type} value={type}>
+                {type}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Name
+          <input value={creatureName} onChange={(event) => setCreatureName(event.target.value)} placeholder="Creature name" />
+        </label>
+        <button type="submit">Save companion</button>
+        {message && <p className="feedback">{message}</p>}
+      </form>
+    </section>
+  );
+}
+
+function CreatureAvatar({ type }: { type: string }) {
+  return (
+    <div className={`creatureAvatar ${type.toLowerCase().replaceAll(" ", "-")}`}>
+      <span className="eye left" />
+      <span className="eye right" />
+      <span className="mark" />
+    </div>
+  );
+}
+
+function PracticeMode({
+  user,
+  tables,
+  initialLimit,
+  creature,
+  onSessionComplete,
+  onShowDashboard
+}: {
+  user: User;
+  tables: number[];
+  initialLimit: number;
+  creature: Creature | null;
+  onSessionComplete: (questionsCompleted: number) => Promise<Creature | null>;
+  onShowDashboard: () => void;
+}) {
   const [question, setQuestion] = useState<Question | null>(null);
   const [answer, setAnswer] = useState("");
   const [attemptNumber, setAttemptNumber] = useState(1);
   const [feedback, setFeedback] = useState("");
-  const [questionLimit, setQuestionLimit] = useState(10);
+  const [questionLimit, setQuestionLimit] = useState(initialLimit);
   const [completedCount, setCompletedCount] = useState(0);
+  const [correctCount, setCorrectCount] = useState(0);
+  const [secondTryCorrectCount, setSecondTryCorrectCount] = useState(0);
   const [sessionDone, setSessionDone] = useState(false);
+  const [summary, setSummary] = useState<PracticeSummary | null>(null);
   const startedAtRef = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -177,17 +378,42 @@ function PracticeMode({ user, tables, onShowDashboard }: { user: User; tables: n
   }, [tables, user.id]);
 
   useEffect(() => {
+    setQuestionLimit(initialLimit);
+  }, [initialLimit]);
+
+  useEffect(() => {
     setCompletedCount(0);
+    setCorrectCount(0);
+    setSecondTryCorrectCount(0);
     setSessionDone(false);
+    setSummary(null);
     loadQuestion().catch(() => setFeedback("Could not load a question."));
   }, [loadQuestion, questionLimit]);
 
-  function finishQuestion(delayMs: number) {
+  async function finishQuestion(delayMs: number, wasCorrect: boolean) {
     const nextCount = completedCount + 1;
+    const nextCorrect = correctCount + (wasCorrect ? 1 : 0);
+    const nextSecondTryCorrect = secondTryCorrectCount + (wasCorrect && attemptNumber === 2 ? 1 : 0);
     setCompletedCount(nextCount);
+    setCorrectCount(nextCorrect);
+    setSecondTryCorrectCount(nextSecondTryCorrect);
     if (nextCount >= questionLimit) {
+      let updatedCreature: Creature | null = null;
+      try {
+        updatedCreature = await onSessionComplete(questionLimit);
+      } catch {
+        updatedCreature = null;
+      }
       setSessionDone(true);
       setQuestion(null);
+      setSummary({
+        attempted: questionLimit,
+        correct: nextCorrect,
+        secondTryCorrect: nextSecondTryCorrect,
+        energyGained: updatedCreature?.energy_gained || 0,
+        creatureStatus: updatedCreature?.status_message || `${creature?.creature_name || "Your companion"} gained energy from your practice.`,
+        creatureName: updatedCreature?.creature_name || creature?.creature_name || "Your companion"
+      });
       return;
     }
     setTimeout(loadQuestion, delayMs);
@@ -195,7 +421,10 @@ function PracticeMode({ user, tables, onShowDashboard }: { user: User; tables: n
 
   function restartSession() {
     setCompletedCount(0);
+    setCorrectCount(0);
+    setSecondTryCorrectCount(0);
     setSessionDone(false);
+    setSummary(null);
     setFeedback("");
     setAnswer("");
     setAttemptNumber(1);
@@ -218,7 +447,7 @@ function PracticeMode({ user, tables, onShowDashboard }: { user: User; tables: n
     });
     if (result.correct) {
       setFeedback(attemptNumber === 1 ? "Correct." : "Got it on the second try.");
-      finishQuestion(650);
+      finishQuestion(650, true).catch(() => setFeedback("Practice was saved, but energy could not update."));
       return;
     }
     if (attemptNumber === 1) {
@@ -230,7 +459,7 @@ function PracticeMode({ user, tables, onShowDashboard }: { user: User; tables: n
       return;
     }
     setFeedback(`Answer: ${result.correct_answer}`);
-    finishQuestion(1100);
+    finishQuestion(1100, false).catch(() => setFeedback("Practice was saved, but energy could not update."));
   }
 
   function submit(event: FormEvent) {
@@ -257,9 +486,9 @@ function PracticeMode({ user, tables, onShowDashboard }: { user: User; tables: n
 
   return (
     <section className="practiceSurface practiceSession">
-      <div className="practiceControls">
+        <div className="practiceControls">
         <div className="segmented" aria-label="Practice length">
-          {[10, 15, 20].map((limit) => (
+          {[5, 10, 15, 20].map((limit) => (
             <button
               key={limit}
               className={questionLimit === limit ? "active" : ""}
@@ -282,7 +511,14 @@ function PracticeMode({ user, tables, onShowDashboard }: { user: User; tables: n
       {sessionDone ? (
         <div className="sessionComplete">
           <h2>Practice complete</h2>
-          <p>{questionLimit} questions finished.</p>
+          <p>{summary?.creatureName || "Your companion"} gained energy.</p>
+          <p>Energy gained: +{summary?.energyGained ?? 0}</p>
+          <p>
+            You answered {summary?.correct ?? correctCount} out of {summary?.attempted ?? questionLimit} correctly.
+          </p>
+          <p>You fixed {summary?.secondTryCorrect ?? secondTryCorrectCount} mistakes on your second try.</p>
+          <p>{summary?.creatureStatus}</p>
+          <p className="quiet">Mistakes help {summary?.creatureName || "your companion"} learn what to train next.</p>
           <div className="actionRow">
             <button type="button" onClick={restartSession}>
               Start again
@@ -302,6 +538,12 @@ function PracticeMode({ user, tables, onShowDashboard }: { user: User; tables: n
               pattern="[0-9]*"
               value={answer}
               onChange={(event) => setAnswer(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  submitAnswer();
+                }
+              }}
               aria-label="Answer"
             />
           </form>
@@ -313,15 +555,34 @@ function PracticeMode({ user, tables, onShowDashboard }: { user: User; tables: n
   );
 }
 
-function ChallengeMode({ user, tables, onShowDashboard }: { user: User; tables: number[]; onShowDashboard: () => void }) {
-  const [count, setCount] = useState(20);
+function ChallengeMode({
+  user,
+  tables,
+  initialCount,
+  creature,
+  onSessionComplete,
+  onShowDashboard
+}: {
+  user: User;
+  tables: number[];
+  initialCount: number;
+  creature: Creature | null;
+  onSessionComplete: (questionsCompleted: number) => Promise<Creature | null>;
+  onShowDashboard: () => void;
+}) {
+  const [count, setCount] = useState(initialCount);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [index, setIndex] = useState(0);
   const [answer, setAnswer] = useState("");
   const [answers, setAnswers] = useState<{ fact_id: number; question_type: string; answer: string; response_time_ms: number }[]>([]);
   const startedAtRef = useRef(0);
   const [result, setResult] = useState<ChallengeResult | null>(null);
+  const [creatureReward, setCreatureReward] = useState<Creature | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setCount(initialCount);
+  }, [initialCount]);
 
   async function start() {
     const data = await api<{ questions: Question[] }>("/challenge/start", {
@@ -333,6 +594,7 @@ function ChallengeMode({ user, tables, onShowDashboard }: { user: User; tables: 
     setAnswers([]);
     setAnswer("");
     setResult(null);
+    setCreatureReward(null);
     startedAtRef.current = Date.now();
     setTimeout(() => inputRef.current?.focus(), 0);
   }
@@ -355,6 +617,13 @@ function ChallengeMode({ user, tables, onShowDashboard }: { user: User; tables: 
       method: "POST",
       body: JSON.stringify({ user_id: user.id, tables, answers: nextAnswers })
     });
+    let updatedCreature: Creature | null = null;
+    try {
+      updatedCreature = await onSessionComplete(nextAnswers.length);
+    } catch {
+      updatedCreature = null;
+    }
+    setCreatureReward(updatedCreature);
     setQuestions([]);
     setResult(data);
   }
@@ -402,19 +671,58 @@ function ChallengeMode({ user, tables, onShowDashboard }: { user: User; tables: 
           </div>
           <div className="questionText">{current.prompt}</div>
           <form className="answerRow" onSubmit={submit}>
-            <input ref={inputRef} inputMode="numeric" pattern="[0-9]*" value={answer} onChange={(event) => setAnswer(event.target.value)} />
+            <input
+              ref={inputRef}
+              inputMode="numeric"
+              pattern="[0-9]*"
+              value={answer}
+              onChange={(event) => setAnswer(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  submitAnswer();
+                }
+              }}
+            />
           </form>
           <NumberPad onPress={pressNumberPad} />
         </div>
       )}
-      {result && <ChallengeResults result={result} onRestart={start} onShowDashboard={onShowDashboard} />}
+      {result && (
+        <ChallengeResults
+          result={result}
+          creatureName={creatureReward?.creature_name || creature?.creature_name || "Your companion"}
+          creatureStatus={creatureReward?.status_message || ""}
+          energyGained={creatureReward?.energy_gained || 0}
+          onRestart={start}
+          onShowDashboard={onShowDashboard}
+        />
+      )}
     </section>
   );
 }
 
-function ChallengeResults({ result, onRestart, onShowDashboard }: { result: ChallengeResult; onRestart: () => void; onShowDashboard: () => void }) {
+function ChallengeResults({
+  result,
+  creatureName,
+  creatureStatus,
+  energyGained,
+  onRestart,
+  onShowDashboard
+}: {
+  result: ChallengeResult;
+  creatureName: string;
+  creatureStatus: string;
+  energyGained: number;
+  onRestart: () => void;
+  onShowDashboard: () => void;
+}) {
   return (
     <div className="results">
+      <div className="creatureResult">
+        <strong>{creatureName} gained {energyGained} energy from your challenge.</strong>
+        {creatureStatus && <p>{creatureStatus}</p>}
+      </div>
       <div className="metricGrid">
         <Metric label="Accuracy" value={`${Math.round(result.accuracy * 100)}%`} />
         <Metric label="Total time" value={formatMs(result.total_time_ms)} />

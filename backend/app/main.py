@@ -3,7 +3,7 @@ from random import choice
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import desc, select
+from sqlalchemy import desc, inspect, select, text
 from sqlalchemy.orm import Session
 
 from .adaptive import (
@@ -15,9 +15,10 @@ from .adaptive import (
     priority_score,
     question_for_fact,
 )
+from .creatures import CREATURE_TYPES, creature_payload, decayed_energy, energy_gain_for_questions
 from .database import Base, SessionLocal, engine, get_db
 from .models import ChallengeAttempt, ChallengeSession, Fact, FactStat, QuestionAttempt, User
-from .schemas import ChallengeStart, ChallengeSubmit, PracticeAnswer, TablesRequest, UserCreate
+from .schemas import ChallengeStart, ChallengeSubmit, CreatureSessionComplete, CreatureUpdate, PracticeAnswer, TablesRequest, UserCreate
 from .seed import seed_facts
 
 app = FastAPI(title="Recall Forge API")
@@ -34,8 +35,28 @@ app.add_middleware(
 @app.on_event("startup")
 def startup() -> None:
     Base.metadata.create_all(bind=engine)
+    migrate_user_creature_columns()
     with SessionLocal() as db:
         seed_facts(db)
+
+
+def migrate_user_creature_columns() -> None:
+    inspector = inspect(engine)
+    if not inspector.has_table("users"):
+        return
+    existing = {column["name"] for column in inspector.get_columns("users")}
+    migrations = {
+        "creature_type": "ALTER TABLE users ADD COLUMN creature_type VARCHAR(32) NOT NULL DEFAULT 'Blob'",
+        "creature_name": "ALTER TABLE users ADD COLUMN creature_name VARCHAR(80) NOT NULL DEFAULT 'Buddy'",
+        "energy": "ALTER TABLE users ADD COLUMN energy INTEGER NOT NULL DEFAULT 60",
+        "last_practised_at": "ALTER TABLE users ADD COLUMN last_practised_at DATETIME",
+        "total_questions_answered": "ALTER TABLE users ADD COLUMN total_questions_answered INTEGER NOT NULL DEFAULT 0",
+        "total_sessions_completed": "ALTER TABLE users ADD COLUMN total_sessions_completed INTEGER NOT NULL DEFAULT 0",
+    }
+    with engine.begin() as connection:
+        for column, statement in migrations.items():
+            if column not in existing:
+                connection.execute(text(statement))
 
 
 def get_user(db: Session, user_id: int) -> User:
@@ -94,7 +115,15 @@ def health() -> dict:
 @app.get("/users")
 def list_users(db: Session = Depends(get_db)) -> list[dict]:
     users = db.scalars(select(User).order_by(User.name)).all()
-    return [{"id": user.id, "name": user.name} for user in users]
+    return [
+        {
+            "id": user.id,
+            "name": user.name,
+            "creature_type": user.creature_type,
+            "creature_name": user.creature_name,
+        }
+        for user in users
+    ]
 
 
 @app.post("/users")
@@ -110,6 +139,41 @@ def create_user(payload: UserCreate, db: Session = Depends(get_db)) -> dict:
     db.commit()
     db.refresh(user)
     return {"id": user.id, "name": user.name}
+
+
+@app.get("/creature-types")
+def creature_types() -> dict:
+    return {"creature_types": CREATURE_TYPES}
+
+
+@app.get("/users/{user_id}/creature")
+def get_creature(user_id: int, db: Session = Depends(get_db)) -> dict:
+    user = get_user(db, user_id)
+    return creature_payload(user)
+
+
+@app.put("/users/{user_id}/creature")
+def update_creature(user_id: int, payload: CreatureUpdate, db: Session = Depends(get_db)) -> dict:
+    user = get_user(db, user_id)
+    user.creature_type = payload.creature_type
+    user.creature_name = payload.creature_name.strip()
+    db.commit()
+    db.refresh(user)
+    return creature_payload(user)
+
+
+@app.post("/users/{user_id}/creature/session-complete")
+def complete_creature_session(user_id: int, payload: CreatureSessionComplete, db: Session = Depends(get_db)) -> dict:
+    user = get_user(db, user_id)
+    now = datetime.now(timezone.utc)
+    energy_gained = energy_gain_for_questions(payload.questions_completed)
+    user.energy = min(100, decayed_energy(user, now) + energy_gained)
+    user.last_practised_at = now
+    user.total_questions_answered = (user.total_questions_answered or 0) + payload.questions_completed
+    user.total_sessions_completed = (user.total_sessions_completed or 0) + 1
+    db.commit()
+    db.refresh(user)
+    return creature_payload(user, energy_gained=energy_gained)
 
 
 @app.get("/facts")

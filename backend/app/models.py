@@ -19,6 +19,12 @@ class User(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    creature_type: Mapped[str] = mapped_column(String(32), nullable=False, default="Blob")
+    creature_name: Mapped[str] = mapped_column(String(80), nullable=False, default="Buddy")
+    energy: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
+    last_practised_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    total_questions_answered: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_sessions_completed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     attempts: Mapped[list["QuestionAttempt"]] = relationship(back_populates="user")
 

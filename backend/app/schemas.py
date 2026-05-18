@@ -11,6 +11,8 @@ QuestionType = Literal[
     "missing_a",
 ]
 
+CreatureType = Literal["Blob", "Dragon", "Robot", "Forest Sprite", "Rock Golem", "Space Beast"]
+
 
 class UserCreate(BaseModel):
     name: str = Field(min_length=1, max_length=80)
@@ -54,3 +56,12 @@ class ChallengeSubmit(BaseModel):
     user_id: int
     tables: list[int] = Field(min_length=1)
     answers: list[ChallengeAnswer] = Field(min_length=1, max_length=100)
+
+
+class CreatureUpdate(BaseModel):
+    creature_type: CreatureType
+    creature_name: str = Field(min_length=1, max_length=80)
+
+
+class CreatureSessionComplete(BaseModel):
+    questions_completed: int = Field(ge=1, le=100)

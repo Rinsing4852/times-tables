@@ -1,6 +1,6 @@
 # Recall Forge
 
-Recall Forge is a self-hosted times tables practice app for local use. V1 is intentionally plain: local profiles, adaptive practice, challenge mode, heat maps, SQLite, no external login, no analytics, and no AI API.
+Recall Forge is a self-hosted times tables practice app for local use. V1 is intentionally plain: local profiles, adaptive practice, challenge mode, heat maps, SQLite, no external login, no analytics, and no AI API. It also includes a light companion creature theme where practice gives the creature energy while the learning engine stays focused on recall and spaced practice.
 
 ## Stack
 
@@ -109,6 +109,7 @@ pytest
 ## V1 Features
 
 - Multiple local user profiles.
+- A safe creature companion per profile with type, name, energy, level, and stage.
 - Practice mode with multiplication, reversed multiplication, division, and missing-factor prompts.
 - One retry after an incorrect practice answer.
 - Challenge mode with no visible timer and end-of-session summary.
@@ -133,11 +134,24 @@ The backend auto-creates tables on startup and seeds multiplication facts from 2
 - `challenge_sessions`
 - `challenge_attempts`
 
+Creature state is stored on each local user profile:
+
+- `creature_type`
+- `creature_name`
+- `energy`
+- `last_practised_at`
+- `total_questions_answered`
+- `total_sessions_completed`
+
 ## API Overview
 
 - `GET /users`
 - `POST /users`
 - `GET /facts`
+- `GET /creature-types`
+- `GET /users/{user_id}/creature`
+- `PUT /users/{user_id}/creature`
+- `POST /users/{user_id}/creature/session-complete`
 - `POST /practice/question`
 - `POST /practice/answer`
 - `POST /challenge/start`
