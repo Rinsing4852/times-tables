@@ -28,6 +28,8 @@ from .creatures import (
 )
 from .database import Base, SessionLocal, engine, get_db
 from .models import ChallengeAttempt, ChallengeSession, Fact, FactStat, QuestionAttempt, User
+from .models import TrainingQuest
+from .quests import APP_VERSION, ensure_daily_quests, parse_fact_ids, quest_payload, quest_questions
 from .schemas import (
     ChallengeStart,
     ChallengeSubmit,
@@ -35,6 +37,7 @@ from .schemas import (
     CreatureSessionComplete,
     CreatureUpdate,
     PracticeAnswer,
+    QuestComplete,
     TablesRequest,
     UserCreate,
 )
@@ -154,6 +157,11 @@ def health() -> dict:
     return {"ok": True}
 
 
+@app.get("/version")
+def version() -> dict:
+    return {"name": "Recall Forge", "version": APP_VERSION}
+
+
 @app.get("/users")
 def list_users(db: Session = Depends(get_db)) -> list[dict]:
     users = db.scalars(select(User).order_by(User.name)).all()
@@ -269,6 +277,75 @@ def complete_creature_session(user_id: int, payload: CreatureSessionComplete, db
         new_unlocks=new_unlocks,
         stage_message=stage_message,
     )
+
+
+@app.get("/users/{user_id}/quests")
+def list_training_quests(user_id: int, db: Session = Depends(get_db)) -> dict:
+    get_user(db, user_id)
+    facts = db.scalars(select(Fact).order_by(Fact.a, Fact.b)).all()
+    stats = db.scalars(select(FactStat).where(FactStat.user_id == user_id)).all()
+    stats_by_fact_id = {stat.fact_id: stat for stat in stats}
+    existing = db.scalars(select(TrainingQuest).where(TrainingQuest.user_id == user_id).order_by(desc(TrainingQuest.generated_at))).all()
+    quests = ensure_daily_quests(user_id, existing, facts, stats_by_fact_id)
+    for quest in quests:
+        if quest.id is None:
+            db.add(quest)
+    db.commit()
+    refreshed = db.scalars(select(TrainingQuest).where(TrainingQuest.user_id == user_id).order_by(desc(TrainingQuest.generated_at))).all()
+    active = [quest for quest in refreshed if quest.status != "completed"][:6]
+    completed = [quest for quest in refreshed if quest.status == "completed"][:6]
+    return {"quests": [quest_payload(quest) for quest in active], "completed": [quest_payload(quest) for quest in completed]}
+
+
+@app.post("/users/{user_id}/quests/{quest_id}/start")
+def start_training_quest(user_id: int, quest_id: int, db: Session = Depends(get_db)) -> dict:
+    get_user(db, user_id)
+    quest = db.get(TrainingQuest, quest_id)
+    if not quest or quest.user_id != user_id:
+        raise HTTPException(status_code=404, detail="Quest not found")
+    facts = db.scalars(select(Fact)).all()
+    questions = quest_questions(quest, {fact.id: fact for fact in facts})
+    if not questions:
+        raise HTTPException(status_code=400, detail="Quest has no facts to practise")
+    return {"quest": quest_payload(quest), "questions": questions}
+
+
+@app.post("/users/{user_id}/quests/{quest_id}/complete")
+def complete_training_quest(user_id: int, quest_id: int, payload: QuestComplete, db: Session = Depends(get_db)) -> dict:
+    user = get_user(db, user_id)
+    quest = db.get(TrainingQuest, quest_id)
+    if not quest or quest.user_id != user_id:
+        raise HTTPException(status_code=404, detail="Quest not found")
+    if quest.status == "completed":
+        return {"quest": quest_payload(quest), "creature": creature_payload(user), "facts_practised": []}
+
+    previous_level, previous_stage, _, _ = sync_level_and_stage(user)
+    quest.status = "completed"
+    quest.completed_at = datetime.now(timezone.utc)
+    user.xp = (user.xp or 0) + quest.reward_xp
+    _, _, new_level, new_stage = sync_level_and_stage(user)
+    stage_message = ""
+    if new_stage != previous_stage:
+        stage_message = f"{user.creature_name} has reached the {new_stage} stage."
+    elif new_level > previous_level:
+        stage_message = f"{user.creature_name} grew stronger."
+    db.commit()
+    db.refresh(user)
+    db.refresh(quest)
+
+    facts = db.scalars(select(Fact).where(Fact.id.in_(parse_fact_ids(quest.target_fact_ids)))).all()
+    fact_labels = [f"{fact.a} x {fact.b}" for fact in facts[:6]]
+    return {
+        "quest": quest_payload(quest),
+        "creature": creature_payload(
+            user,
+            xp_gained=quest.reward_xp,
+            reward_reasons=[f"{quest.title} +{quest.reward_xp} XP"],
+            stage_message=stage_message,
+        ),
+        "facts_practised": fact_labels,
+        "learning_message": "You gave these facts focused practice. That helps them become easier to remember next time.",
+    }
 
 
 @app.get("/facts")
@@ -438,6 +515,8 @@ def submit_challenge(payload: ChallengeSubmit, db: Session = Depends(get_db)) ->
         }
         for item in previous
     ]
+    previous_average_times = [item["average_time_ms"] for item in previous_summaries if item["average_time_ms"]]
+    current_average_time = round(total_time / len(results))
 
     fastest = min(results, key=lambda item: item["response_time_ms"])
     slowest = max(results, key=lambda item: item["response_time_ms"])
@@ -445,7 +524,7 @@ def submit_challenge(payload: ChallengeSubmit, db: Session = Depends(get_db)) ->
     return {
         "session_id": session.id,
         "total_time_ms": total_time,
-        "average_time_ms": round(total_time / len(results)),
+        "average_time_ms": current_average_time,
         "accuracy": round(correct_count / len(results), 3),
         "correct_count": correct_count,
         "question_count": len(results),
@@ -453,6 +532,9 @@ def submit_challenge(payload: ChallengeSubmit, db: Session = Depends(get_db)) ->
         "slowest": slowest,
         "incorrect_answers": incorrect,
         "previous_10": previous_summaries,
+        "personal_best_average_ms": min(previous_average_times) if previous_average_times else None,
+        "recent_average_ms": round(sum(previous_average_times) / len(previous_average_times)) if previous_average_times else None,
+        "beat_recent_average": bool(previous_average_times and current_average_time < (sum(previous_average_times) / len(previous_average_times))),
         "creature_events": {
             "first_attempt_correct": first_attempt_correct,
             "second_attempt_correct": 0,
@@ -505,4 +587,51 @@ def dashboard(user_id: int, db: Session = Depends(get_db)) -> dict:
     }
     total_answers = totals["correct"] + totals["incorrect"]
     totals["accuracy"] = round(totals["correct"] / total_answers, 3) if total_answers else None
-    return {"totals": totals, "cells": cells, "strengths": strengths, "weaknesses": weaknesses}
+
+    table_stats = []
+    for table in range(2, 13):
+        table_cells = [cell for cell in cells if cell["a"] == table]
+        correct = sum(cell["correct_count"] for cell in table_cells)
+        incorrect = sum(cell["incorrect_count"] for cell in table_cells)
+        avg_times = [cell["average_time_ms"] for cell in table_cells if cell["average_time_ms"] is not None]
+        total = correct + incorrect
+        table_stats.append(
+            {
+                "table": table,
+                "accuracy": round(correct / total, 3) if total else None,
+                "average_time_ms": round(sum(avg_times) / len(avg_times)) if avg_times else None,
+                "answers": total,
+            }
+        )
+
+    needing_exposure = sorted(
+        cells,
+        key=lambda item: ((item["correct_count"] + item["incorrect_count"]), item["last_seen"] or ""),
+    )[:8]
+    improving = sorted(
+        [cell for cell in cells if cell["correct_count"] + cell["incorrect_count"] > 0],
+        key=lambda item: (item["priority_score"], -(item["accuracy"] or 0)),
+    )[:8]
+    recent_attempts = db.scalars(
+        select(QuestionAttempt).where(QuestionAttempt.user_id == user_id).order_by(desc(QuestionAttempt.created_at)).limit(12)
+    ).all()
+    recent_history = [
+        {
+            "prompt": attempt.prompt,
+            "is_correct": attempt.is_correct,
+            "response_time_ms": attempt.response_time_ms,
+            "mode": attempt.mode,
+            "created_at": attempt.created_at.isoformat(),
+        }
+        for attempt in recent_attempts
+    ]
+    return {
+        "totals": totals,
+        "cells": cells,
+        "strengths": strengths,
+        "weaknesses": weaknesses,
+        "table_stats": table_stats,
+        "needing_exposure": needing_exposure,
+        "improving": improving,
+        "recent_history": recent_history,
+    }

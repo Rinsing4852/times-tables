@@ -75,3 +75,10 @@ class CreatureSessionComplete(BaseModel):
     practiced_weak_fact: bool = False
     improved_fact_accuracy: bool = False
     practiced_division: bool = False
+
+
+class QuestComplete(BaseModel):
+    questions_completed: int = Field(ge=1, le=100)
+    first_attempt_correct: int = Field(default=0, ge=0, le=100)
+    second_attempt_correct: int = Field(default=0, ge=0, le=100)
+    facts_practised: list[int] = Field(default_factory=list)

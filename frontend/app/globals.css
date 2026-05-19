@@ -548,6 +548,60 @@ h2 {
   opacity: 0.9;
 }
 
+.versionLine {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.questSection {
+  display: grid;
+  gap: 12px;
+}
+
+.questGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.questCard {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  min-height: 210px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fffdf7;
+  padding: 14px;
+}
+
+.questCard h3,
+.questCard p {
+  margin: 0;
+}
+
+.questCard p {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.questMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.questMeta span {
+  border-radius: 999px;
+  background: #edf2f7;
+  color: var(--ink);
+  font-size: 0.86rem;
+  font-weight: 900;
+  padding: 7px 10px;
+}
+
 .creatureSetup {
   display: grid;
   grid-template-columns: 1fr 1fr auto;
@@ -907,6 +961,34 @@ h2 {
   font-weight: 800;
 }
 
+.parentStats {
+  display: grid;
+  gap: 14px;
+}
+
+.tableStatsGrid {
+  display: grid;
+  grid-template-columns: repeat(11, minmax(70px, 1fr));
+  gap: 6px;
+  overflow-x: auto;
+}
+
+.tableStat {
+  display: grid;
+  gap: 4px;
+  min-height: 82px;
+  align-content: center;
+  border-radius: 8px;
+  background: #edf2f7;
+  padding: 10px;
+}
+
+.tableStat span,
+.tableStat small {
+  color: var(--muted);
+  font-weight: 800;
+}
+
 .emptyState {
   min-height: 220px;
   display: grid;
@@ -929,7 +1011,8 @@ h2 {
   .profileForm,
   .metricGrid,
   .homeActions,
-  .cosmeticGrid {
+  .cosmeticGrid,
+  .questGrid {
     grid-template-columns: 1fr 1fr;
   }
 
@@ -968,7 +1051,8 @@ h2 {
   .metricGrid,
   .answerRow,
   .homeActions,
-  .cosmeticGrid {
+  .cosmeticGrid,
+  .questGrid {
     grid-template-columns: 1fr;
   }
 

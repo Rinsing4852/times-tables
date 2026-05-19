@@ -1,6 +1,6 @@
 # Recall Forge
 
-Recall Forge is a self-hosted times tables practice app for local use. It is intentionally plain: local profiles, adaptive practice, challenge mode, heat maps, SQLite, no external login, no analytics, and no AI API. It also includes a light companion creature theme where practice gives the creature energy and XP while the learning engine stays focused on recall and spaced practice.
+Recall Forge is a self-hosted times tables practice app for local use. It is intentionally plain: local profiles, adaptive practice, smart training quests, challenge mode, heat maps, SQLite, no external login, no analytics, and no AI API. It also includes a light companion creature theme where practice gives the creature energy and XP while the learning engine stays focused on recall and spaced practice.
 
 ## Stack
 
@@ -110,6 +110,7 @@ pytest
 
 - Multiple local user profiles.
 - A safe creature companion per profile with type, name, energy, XP, level, stage, weekly goal, and cosmetic unlocks.
+- Smart training quests generated from fact accuracy, speed, and recent mistakes.
 - Practice mode with multiplication, reversed multiplication, division, and missing-factor prompts.
 - One retry after an incorrect practice answer.
 - Challenge mode with no visible timer and end-of-session summary.
@@ -133,6 +134,7 @@ The backend auto-creates tables on startup and seeds multiplication facts from 2
 - `fact_stats`
 - `challenge_sessions`
 - `challenge_attempts`
+- `training_quests`
 
 Creature state is stored on each local user profile:
 
@@ -154,12 +156,16 @@ Creature state is stored on each local user profile:
 
 - `GET /users`
 - `POST /users`
+- `GET /version`
 - `GET /facts`
 - `GET /creature-types`
 - `GET /users/{user_id}/creature`
 - `PUT /users/{user_id}/creature`
 - `PUT /users/{user_id}/creature/cosmetic`
 - `POST /users/{user_id}/creature/session-complete`
+- `GET /users/{user_id}/quests`
+- `POST /users/{user_id}/quests/{quest_id}/start`
+- `POST /users/{user_id}/quests/{quest_id}/complete`
 - `POST /practice/question`
 - `POST /practice/answer`
 - `POST /challenge/start`

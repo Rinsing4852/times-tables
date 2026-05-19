@@ -121,3 +121,24 @@ class ChallengeAttempt(Base):
 
     session: Mapped["ChallengeSession"] = relationship(back_populates="attempts")
     fact: Mapped["Fact"] = relationship()
+
+
+class TrainingQuest(Base):
+    __tablename__ = "training_quests"
+    __table_args__ = (UniqueConstraint("user_id", "quest_key", name="uq_user_quest_key"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    quest_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    quest_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    title: Mapped[str] = mapped_column(String(80), nullable=False)
+    description: Mapped[str] = mapped_column(String(200), nullable=False)
+    target_fact_ids: Mapped[str] = mapped_column(String(512), nullable=False, default="[]")
+    question_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    reward_xp: Mapped[int] = mapped_column(Integer, nullable=False)
+    reward_note: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="available")
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    user: Mapped["User"] = relationship()
