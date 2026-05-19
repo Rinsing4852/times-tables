@@ -40,11 +40,19 @@ For Unraid with Dockge, use `compose.dockge.yml` as the stack compose file. It i
 - only the frontend port is exposed
 - the backend stays on the private Docker bridge network
 - SQLite is stored at `/mnt/user/appdata/times-tables/data/recall_forge.db`
+- both app containers run as non-root users
+- light runtime limits are set for memory, CPU, and process count
 - containers drop Linux capabilities
 - `no-new-privileges` is enabled
 - container filesystems are read-only except `/tmp`, frontend cache, and backend `/data`
 
-Set `UNRAID_LAN_IP` to your Unraid LAN address before deploying, or replace the default `192.168.1.50` in the compose file:
+Before deploying, copy `.env.unraid.example` to `.env` in the Dockge stack folder and change `UNRAID_LAN_IP` to your Unraid LAN address:
+
+```bash
+cp .env.unraid.example .env
+```
+
+Or set `UNRAID_LAN_IP` directly in Dockge, or replace the default `192.168.1.50` in the compose file:
 
 ```yaml
 ports:
