@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 from app.models import Fact, FactStat, TrainingQuest
-from app.quests import quest_definitions, quest_questions, weakest_facts
+from app.quests import quest_completion_is_valid, quest_definitions, quest_questions, weakest_facts
 
 
 def make_fact(fact_id: int, a: int, b: int) -> Fact:
@@ -47,3 +47,22 @@ def test_quest_questions_use_division_forms_for_division_boost() -> None:
 
     assert len(questions) == 4
     assert all("÷" in question["prompt"] for question in questions)
+
+
+def test_quest_completion_requires_matching_count_and_target_facts() -> None:
+    quest = TrainingQuest(
+        id=1,
+        user_id=1,
+        quest_key="test-tricky",
+        quest_type="tricky",
+        title="Tricky Fact Tune-Up",
+        description="Practise focused facts.",
+        target_fact_ids="[1, 2, 3]",
+        question_count=3,
+        reward_xp=25,
+    )
+
+    assert quest_completion_is_valid(quest, 3, [1, 2, 3])
+    assert not quest_completion_is_valid(quest, 2, [1, 2, 3])
+    assert not quest_completion_is_valid(quest, 3, [1, 2])
+    assert not quest_completion_is_valid(quest, 3, [1, 2, 99])

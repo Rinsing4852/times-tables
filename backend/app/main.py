@@ -29,7 +29,7 @@ from .creatures import (
 from .database import Base, SessionLocal, engine, get_db
 from .models import ChallengeAttempt, ChallengeSession, Fact, FactStat, QuestionAttempt, User
 from .models import TrainingQuest
-from .quests import APP_VERSION, ensure_daily_quests, parse_fact_ids, quest_payload, quest_questions
+from .quests import APP_VERSION, ensure_available_quests, parse_fact_ids, quest_completion_is_valid, quest_payload, quest_questions
 from .schemas import (
     ChallengeStart,
     ChallengeSubmit,
@@ -286,7 +286,7 @@ def list_training_quests(user_id: int, db: Session = Depends(get_db)) -> dict:
     stats = db.scalars(select(FactStat).where(FactStat.user_id == user_id)).all()
     stats_by_fact_id = {stat.fact_id: stat for stat in stats}
     existing = db.scalars(select(TrainingQuest).where(TrainingQuest.user_id == user_id).order_by(desc(TrainingQuest.generated_at))).all()
-    quests = ensure_daily_quests(user_id, existing, facts, stats_by_fact_id)
+    quests = ensure_available_quests(user_id, existing, facts, stats_by_fact_id)
     for quest in quests:
         if quest.id is None:
             db.add(quest)
@@ -318,6 +318,8 @@ def complete_training_quest(user_id: int, quest_id: int, payload: QuestComplete,
         raise HTTPException(status_code=404, detail="Quest not found")
     if quest.status == "completed":
         return {"quest": quest_payload(quest), "creature": creature_payload(user), "facts_practised": []}
+    if not quest_completion_is_valid(quest, payload.questions_completed, payload.facts_practised):
+        raise HTTPException(status_code=400, detail="Quest completion does not match the quest questions")
 
     previous_level, previous_stage, _, _ = sync_level_and_stage(user)
     quest.status = "completed"

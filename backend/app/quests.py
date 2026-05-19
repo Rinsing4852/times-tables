@@ -153,7 +153,7 @@ def quest_definitions(facts: list[Fact], stats_by_fact_id: dict[int, FactStat]) 
     ]
 
 
-def ensure_daily_quests(user_id: int, existing: list[TrainingQuest], facts: list[Fact], stats_by_fact_id: dict[int, FactStat]) -> list[TrainingQuest]:
+def ensure_available_quests(user_id: int, existing: list[TrainingQuest], facts: list[Fact], stats_by_fact_id: dict[int, FactStat]) -> list[TrainingQuest]:
     week_key = current_week_key()
     existing_keys = {quest.quest_key for quest in existing}
     quests = list(existing)
@@ -175,6 +175,18 @@ def ensure_daily_quests(user_id: int, existing: list[TrainingQuest], facts: list
             )
         )
     return quests
+
+
+def quest_completion_is_valid(quest: TrainingQuest, questions_completed: int, facts_practised: list[int]) -> bool:
+    target_ids = set(parse_fact_ids(quest.target_fact_ids))
+    practised_ids = set(facts_practised)
+    required_fact_count = min(len(target_ids), quest.question_count)
+    return (
+        questions_completed == quest.question_count
+        and required_fact_count > 0
+        and len(practised_ids & target_ids) >= required_fact_count
+        and practised_ids.issubset(target_ids)
+    )
 
 
 def quest_payload(quest: TrainingQuest) -> dict:

@@ -81,4 +81,4 @@ class QuestComplete(BaseModel):
     questions_completed: int = Field(ge=1, le=100)
     first_attempt_correct: int = Field(default=0, ge=0, le=100)
     second_attempt_correct: int = Field(default=0, ge=0, le=100)
-    facts_practised: list[int] = Field(default_factory=list)
+    facts_practised: list[int] = Field(default_factory=list, max_length=100)
