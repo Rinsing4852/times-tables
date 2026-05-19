@@ -40,7 +40,7 @@ For Unraid with Dockge, use `compose.dockge.yml` as the stack compose file. It i
 - only the frontend port is exposed
 - the backend stays on the private Docker bridge network
 - SQLite is stored at `/mnt/user/appdata/times-tables/data/recall_forge.db`
-- both app containers run as non-root users
+- the hardened backend runs as UID/GID `1000:1000`
 - light runtime limits are set for memory, CPU, and process count
 - containers drop Linux capabilities
 - `no-new-privileges` is enabled

@@ -5,6 +5,7 @@ services:
     container_name: times-tables-backend
     restart: unless-stopped
     init: true
+    user: "1000:1000"
     environment:
       DATABASE_URL: sqlite:////data/recall_forge.db
     volumes:

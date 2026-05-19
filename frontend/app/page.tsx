@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { TableSelector } from "../components/TableSelector";
 import { api } from "../lib/api";
 
@@ -133,6 +133,38 @@ const CREATURE_TYPES = ["Blob", "Dragon", "Robot", "Forest Sprite", "Rock Golem"
 function formatMs(ms: number) {
   if (ms < 1000) return `${ms} ms`;
   return `${(ms / 1000).toFixed(1)} s`;
+}
+
+function readAnswer(inputRef: RefObject<HTMLInputElement | null>) {
+  return inputRef.current?.value.trim() || "";
+}
+
+function setAnswerValue(inputRef: RefObject<HTMLInputElement | null>, value: string) {
+  if (inputRef.current) inputRef.current.value = value;
+}
+
+function focusAnswer(inputRef: RefObject<HTMLInputElement | null>) {
+  requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }));
+}
+
+function pressAnswerKey(inputRef: RefObject<HTMLInputElement | null>, key: string, submitAnswer: () => void) {
+  const current = readAnswer(inputRef);
+  if (key === "backspace") {
+    setAnswerValue(inputRef, current.slice(0, -1));
+    focusAnswer(inputRef);
+    return;
+  }
+  if (key === "clear") {
+    setAnswerValue(inputRef, "");
+    focusAnswer(inputRef);
+    return;
+  }
+  if (key === "enter") {
+    submitAnswer();
+    return;
+  }
+  setAnswerValue(inputRef, `${current}${key}`.slice(0, 4));
+  focusAnswer(inputRef);
 }
 
 export default function Home() {
@@ -576,7 +608,6 @@ function PracticeMode({
   onShowDashboard: () => void;
 }) {
   const [question, setQuestion] = useState<Question | null>(null);
-  const [answer, setAnswer] = useState("");
   const [attemptNumber, setAttemptNumber] = useState(1);
   const [feedback, setFeedback] = useState("");
   const [questionLimit, setQuestionLimit] = useState(initialLimit);
@@ -591,6 +622,7 @@ function PracticeMode({
   const [summary, setSummary] = useState<PracticeSummary | null>(null);
   const startedAtRef = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const submittingRef = useRef(false);
 
   const loadQuestion = useCallback(async () => {
     if (tables.length === 0) return;
@@ -599,11 +631,12 @@ function PracticeMode({
       body: JSON.stringify({ user_id: user.id, tables })
     });
     setQuestion(next);
-    setAnswer("");
+    setAnswerValue(inputRef, "");
     setAttemptNumber(1);
     setFeedback("");
     startedAtRef.current = Date.now();
-    setTimeout(() => inputRef.current?.focus(), 0);
+    submittingRef.current = false;
+    focusAnswer(inputRef);
   }, [tables, user.id]);
 
   useEffect(() => {
@@ -683,40 +716,48 @@ function PracticeMode({
     setSessionDone(false);
     setSummary(null);
     setFeedback("");
-    setAnswer("");
+    setAnswerValue(inputRef, "");
     setAttemptNumber(1);
     setTimeout(loadQuestion, 0);
   }
 
   async function submitAnswer() {
-    if (!question || answer.trim() === "") return;
+    const submittedAnswer = readAnswer(inputRef);
+    if (!question || submittedAnswer === "" || submittingRef.current) return;
+    submittingRef.current = true;
     const elapsed = Date.now() - startedAtRef.current;
-    const result = await api<{ correct: boolean; correct_answer: number; learning_event: LearningEvent }>("/practice/answer", {
-      method: "POST",
-      body: JSON.stringify({
-        user_id: user.id,
-        fact_id: question.fact_id,
-        question_type: question.question_type,
-        answer,
-        attempt_number: attemptNumber,
-        response_time_ms: elapsed
-      })
-    });
-    if (result.correct) {
-      setFeedback(attemptNumber === 1 ? "Correct." : "Got it on the second try.");
-      finishQuestion(650, true, result.learning_event).catch(() => setFeedback("Practice was recorded, but energy could not update."));
-      return;
+    try {
+      const result = await api<{ correct: boolean; correct_answer: number; learning_event: LearningEvent }>("/practice/answer", {
+        method: "POST",
+        body: JSON.stringify({
+          user_id: user.id,
+          fact_id: question.fact_id,
+          question_type: question.question_type,
+          answer: submittedAnswer,
+          attempt_number: attemptNumber,
+          response_time_ms: elapsed
+        })
+      });
+      if (result.correct) {
+        setFeedback(attemptNumber === 1 ? "Correct." : "Got it on the second try.");
+        finishQuestion(650, true, result.learning_event).catch(() => setFeedback("Practice was recorded, but energy could not update."));
+        return;
+      }
+      if (attemptNumber === 1) {
+        setAttemptNumber(2);
+        setAnswerValue(inputRef, "");
+        setFeedback("Try once more.");
+        startedAtRef.current = Date.now();
+        submittingRef.current = false;
+        focusAnswer(inputRef);
+        return;
+      }
+      setFeedback(`Answer: ${result.correct_answer}`);
+      finishQuestion(1100, false, result.learning_event).catch(() => setFeedback("Practice was recorded, but energy could not update."));
+    } catch {
+      setFeedback("Could not check that answer.");
+      submittingRef.current = false;
     }
-    if (attemptNumber === 1) {
-      setAttemptNumber(2);
-      setAnswer("");
-      setFeedback("Try once more.");
-      startedAtRef.current = Date.now();
-      inputRef.current?.focus();
-      return;
-    }
-    setFeedback(`Answer: ${result.correct_answer}`);
-    finishQuestion(1100, false, result.learning_event).catch(() => setFeedback("Practice was recorded, but energy could not update."));
   }
 
   function submit(event: FormEvent) {
@@ -726,19 +767,7 @@ function PracticeMode({
 
   function pressNumberPad(key: string) {
     if (sessionDone) return;
-    if (key === "backspace") {
-      setAnswer((current) => current.slice(0, -1));
-      return;
-    }
-    if (key === "clear") {
-      setAnswer("");
-      return;
-    }
-    if (key === "enter") {
-      submitAnswer();
-      return;
-    }
-    setAnswer((current) => `${current}${key}`.slice(0, 4));
+    pressAnswerKey(inputRef, key, submitAnswer);
   }
 
   return (
@@ -798,8 +827,7 @@ function PracticeMode({
               ref={inputRef}
               inputMode="numeric"
               pattern="[0-9]*"
-              value={answer}
-              onChange={(event) => setAnswer(event.target.value)}
+              autoComplete="off"
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
                   event.preventDefault();
@@ -837,7 +865,6 @@ function QuestMode({
   onBackHome: () => void;
 }) {
   const [index, setIndex] = useState(0);
-  const [answer, setAnswer] = useState("");
   const [attemptNumber, setAttemptNumber] = useState(1);
   const [feedback, setFeedback] = useState("");
   const [correctCount, setCorrectCount] = useState(0);
@@ -850,16 +877,19 @@ function QuestMode({
   const [result, setResult] = useState<QuestCompleteResult | null>(null);
   const startedAtRef = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const submittingRef = useRef(false);
 
   const current = questStart.questions[index];
 
   useEffect(() => {
     setIndex(0);
-    setAnswer("");
+    setAnswerValue(inputRef, "");
     setAttemptNumber(1);
     setFeedback("");
     setResult(null);
     startedAtRef.current = Date.now();
+    submittingRef.current = false;
+    focusAnswer(inputRef);
   }, [questStart.quest.quest_id]);
 
   async function finishQuestQuestion(wasCorrect: boolean, learningEvent: LearningEvent) {
@@ -898,43 +928,52 @@ function QuestMode({
     }
 
     setIndex((currentIndex) => currentIndex + 1);
-    setAnswer("");
+    setAnswerValue(inputRef, "");
     setAttemptNumber(1);
     setFeedback("");
     startedAtRef.current = Date.now();
-    setTimeout(() => inputRef.current?.focus(), 0);
+    submittingRef.current = false;
+    focusAnswer(inputRef);
   }
 
   async function submitAnswer() {
-    if (!current || answer.trim() === "") return;
+    const submittedAnswer = readAnswer(inputRef);
+    if (!current || submittedAnswer === "" || submittingRef.current) return;
+    submittingRef.current = true;
     const elapsed = Date.now() - startedAtRef.current;
-    const response = await api<{ correct: boolean; correct_answer: number; learning_event: LearningEvent }>("/practice/answer", {
-      method: "POST",
-      body: JSON.stringify({
-        user_id: user.id,
-        fact_id: current.fact_id,
-        question_type: current.question_type,
-        answer,
-        attempt_number: attemptNumber,
-        response_time_ms: elapsed
-      })
-    });
+    try {
+      const response = await api<{ correct: boolean; correct_answer: number; learning_event: LearningEvent }>("/practice/answer", {
+        method: "POST",
+        body: JSON.stringify({
+          user_id: user.id,
+          fact_id: current.fact_id,
+          question_type: current.question_type,
+          answer: submittedAnswer,
+          attempt_number: attemptNumber,
+          response_time_ms: elapsed
+        })
+      });
 
-    if (response.correct) {
-      setFeedback(attemptNumber === 1 ? "Correct." : "Fixed on the second try.");
-      setTimeout(() => finishQuestQuestion(true, response.learning_event), 550);
-      return;
+      if (response.correct) {
+        setFeedback(attemptNumber === 1 ? "Correct." : "Fixed on the second try.");
+        setTimeout(() => finishQuestQuestion(true, response.learning_event), 550);
+        return;
+      }
+      if (attemptNumber === 1) {
+        setAttemptNumber(2);
+        setAnswerValue(inputRef, "");
+        setFeedback("Try once more.");
+        startedAtRef.current = Date.now();
+        submittingRef.current = false;
+        focusAnswer(inputRef);
+        return;
+      }
+      setFeedback(`Answer: ${response.correct_answer}`);
+      setTimeout(() => finishQuestQuestion(false, response.learning_event), 850);
+    } catch {
+      setFeedback("Could not check that answer.");
+      submittingRef.current = false;
     }
-    if (attemptNumber === 1) {
-      setAttemptNumber(2);
-      setAnswer("");
-      setFeedback("Try once more.");
-      startedAtRef.current = Date.now();
-      inputRef.current?.focus();
-      return;
-    }
-    setFeedback(`Answer: ${response.correct_answer}`);
-    setTimeout(() => finishQuestQuestion(false, response.learning_event), 850);
   }
 
   function submit(event: FormEvent) {
@@ -977,8 +1016,7 @@ function QuestMode({
           ref={inputRef}
           inputMode="numeric"
           pattern="[0-9]*"
-          value={answer}
-          onChange={(event) => setAnswer(event.target.value)}
+          autoComplete="off"
           onKeyDown={(event) => {
             if (event.key === "Enter") {
               event.preventDefault();
@@ -988,14 +1026,7 @@ function QuestMode({
           aria-label="Answer"
         />
       </form>
-      <NumberPad
-        onPress={(key) => {
-          if (key === "backspace") setAnswer((currentAnswer) => currentAnswer.slice(0, -1));
-          else if (key === "clear") setAnswer("");
-          else if (key === "enter") submitAnswer();
-          else setAnswer((currentAnswer) => `${currentAnswer}${key}`.slice(0, 4));
-        }}
-      />
+      <NumberPad onPress={(key) => pressAnswerKey(inputRef, key, submitAnswer)} />
       <div className={`feedback ${feedback.startsWith("Answer") ? "wrong" : ""}`}>{feedback}</div>
     </section>
   );
@@ -1019,12 +1050,12 @@ function ChallengeMode({
   const [count, setCount] = useState(initialCount);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [index, setIndex] = useState(0);
-  const [answer, setAnswer] = useState("");
   const [answers, setAnswers] = useState<{ fact_id: number; question_type: string; answer: string; response_time_ms: number }[]>([]);
   const startedAtRef = useRef(0);
   const [result, setResult] = useState<ChallengeResult | null>(null);
   const [creatureReward, setCreatureReward] = useState<Creature | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const submittingRef = useRef(false);
 
   useEffect(() => {
     setCount(initialCount);
@@ -1038,48 +1069,58 @@ function ChallengeMode({
     setQuestions(data.questions);
     setIndex(0);
     setAnswers([]);
-    setAnswer("");
+    setAnswerValue(inputRef, "");
     setResult(null);
     setCreatureReward(null);
     startedAtRef.current = Date.now();
-    setTimeout(() => inputRef.current?.focus(), 0);
+    submittingRef.current = false;
+    focusAnswer(inputRef);
   }
 
   async function submitAnswer() {
     const current = questions[index];
-    if (!current || answer.trim() === "") return;
+    const submittedAnswer = readAnswer(inputRef);
+    if (!current || submittedAnswer === "" || submittingRef.current) return;
+    submittingRef.current = true;
     const nextAnswers = [
       ...answers,
-      { fact_id: current.fact_id, question_type: current.question_type, answer, response_time_ms: Date.now() - startedAtRef.current }
+      { fact_id: current.fact_id, question_type: current.question_type, answer: submittedAnswer, response_time_ms: Date.now() - startedAtRef.current }
     ];
-    setAnswer("");
+    setAnswerValue(inputRef, "");
     if (index + 1 < questions.length) {
       setAnswers(nextAnswers);
       setIndex(index + 1);
       startedAtRef.current = Date.now();
+      submittingRef.current = false;
+      focusAnswer(inputRef);
       return;
     }
-    const data = await api<ChallengeResult>("/challenge/submit", {
-      method: "POST",
-      body: JSON.stringify({ user_id: user.id, tables, answers: nextAnswers })
-    });
-    let updatedCreature: Creature | null = null;
     try {
-      updatedCreature = await onSessionComplete({
-        questions_completed: nextAnswers.length,
-        mode: "challenge",
-        first_attempt_correct: data.creature_events.first_attempt_correct,
-        second_attempt_correct: data.creature_events.second_attempt_correct,
-        practiced_weak_fact: data.creature_events.practiced_weak_fact,
-        improved_fact_accuracy: data.creature_events.improved_fact_accuracy,
-        practiced_division: data.creature_events.practiced_division
+      const data = await api<ChallengeResult>("/challenge/submit", {
+        method: "POST",
+        body: JSON.stringify({ user_id: user.id, tables, answers: nextAnswers })
       });
+      let updatedCreature: Creature | null = null;
+      try {
+        updatedCreature = await onSessionComplete({
+          questions_completed: nextAnswers.length,
+          mode: "challenge",
+          first_attempt_correct: data.creature_events.first_attempt_correct,
+          second_attempt_correct: data.creature_events.second_attempt_correct,
+          practiced_weak_fact: data.creature_events.practiced_weak_fact,
+          improved_fact_accuracy: data.creature_events.improved_fact_accuracy,
+          practiced_division: data.creature_events.practiced_division
+        });
+      } catch {
+        updatedCreature = null;
+      }
+      setCreatureReward(updatedCreature);
+      setQuestions([]);
+      setResult(data);
     } catch {
-      updatedCreature = null;
+      setAnswerValue(inputRef, submittedAnswer);
+      submittingRef.current = false;
     }
-    setCreatureReward(updatedCreature);
-    setQuestions([]);
-    setResult(data);
   }
 
   function submit(event: FormEvent) {
@@ -1088,19 +1129,7 @@ function ChallengeMode({
   }
 
   function pressNumberPad(key: string) {
-    if (key === "backspace") {
-      setAnswer((current) => current.slice(0, -1));
-      return;
-    }
-    if (key === "clear") {
-      setAnswer("");
-      return;
-    }
-    if (key === "enter") {
-      submitAnswer();
-      return;
-    }
-    setAnswer((current) => `${current}${key}`.slice(0, 4));
+    pressAnswerKey(inputRef, key, submitAnswer);
   }
 
   const current = questions[index];
@@ -1129,8 +1158,7 @@ function ChallengeMode({
               ref={inputRef}
               inputMode="numeric"
               pattern="[0-9]*"
-              value={answer}
-              onChange={(event) => setAnswer(event.target.value)}
+              autoComplete="off"
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
                   event.preventDefault();
