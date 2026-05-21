@@ -133,6 +133,7 @@ type PracticeSummary = {
 };
 
 const DEFAULT_TABLES = [2, 3, 4, 5];
+const ALL_TABLES = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 const CREATURE_TYPES = ["Blob", "Dragon", "Robot", "Forest Sprite", "Rock Golem", "Space Beast"];
 
 function formatMs(ms: number) {
@@ -597,11 +598,13 @@ function AdminUserRow({ adminUser, user, onRefresh }: { adminUser: User; user: U
   }
 
   async function resetProgress() {
+    if (!window.confirm(`Reset progress for ${user.name}? Creature XP, energy, attempts, and dashboard history will restart.`)) return;
     await api(`/admin/${adminUser.id}/users/${user.id}/reset-progress`, { method: "POST" });
     await onRefresh();
   }
 
   async function deleteUser() {
+    if (!window.confirm(`Delete ${user.name}? This removes the profile and all progress.`)) return;
     await api(`/admin/${adminUser.id}/users/${user.id}`, { method: "DELETE" });
     await onRefresh();
   }
@@ -1051,20 +1054,25 @@ function QuestMode({
     setFactsPractised(nextFacts);
 
     if (index + 1 >= questStart.questions.length) {
-      const completed = await onCompleteQuest(
-        questStart.quest,
-        {
-          questions_completed: questStart.questions.length,
-          mode: "practice",
-          first_attempt_correct: nextFirst,
-          second_attempt_correct: nextSecond,
-          practiced_weak_fact: nextWeak,
-          improved_fact_accuracy: nextImproved,
-          practiced_division: nextDivision
-        },
-        nextFacts
-      );
-      setResult(completed?.questResult || null);
+      try {
+        const completed = await onCompleteQuest(
+          questStart.quest,
+          {
+            questions_completed: questStart.questions.length,
+            mode: "practice",
+            first_attempt_correct: nextFirst,
+            second_attempt_correct: nextSecond,
+            practiced_weak_fact: nextWeak,
+            improved_fact_accuracy: nextImproved,
+            practiced_division: nextDivision
+          },
+          nextFacts
+        );
+        setResult(completed?.questResult || null);
+      } catch {
+        setFeedback("Quest answers were recorded, but the quest reward could not be saved.");
+        submittingRef.current = false;
+      }
       return;
     }
 
@@ -1197,6 +1205,7 @@ function ChallengeMode({
   const startedAtRef = useRef(0);
   const [result, setResult] = useState<ChallengeResult | null>(null);
   const [creatureReward, setCreatureReward] = useState<Creature | null>(null);
+  const [feedback, setFeedback] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const submittingRef = useRef(false);
 
@@ -1205,19 +1214,26 @@ function ChallengeMode({
   }, [initialCount]);
 
   async function start() {
-    const data = await api<{ questions: Question[] }>("/challenge/start", {
-      method: "POST",
-      body: JSON.stringify({ user_id: user.id, tables, question_count: count, question_mode: questionMode })
-    });
-    setQuestions(data.questions);
-    setIndex(0);
-    setAnswers([]);
-    setAnswerValue(inputRef, "");
-    setResult(null);
-    setCreatureReward(null);
-    startedAtRef.current = Date.now();
-    submittingRef.current = false;
-    focusAnswer(inputRef);
+    const safeCount = Math.min(Math.max(Number.isFinite(count) ? count : initialCount, 1), 100);
+    setCount(safeCount);
+    setFeedback("");
+    try {
+      const data = await api<{ questions: Question[] }>("/challenge/start", {
+        method: "POST",
+        body: JSON.stringify({ user_id: user.id, tables, question_count: safeCount, question_mode: questionMode })
+      });
+      setQuestions(data.questions);
+      setIndex(0);
+      setAnswers([]);
+      setAnswerValue(inputRef, "");
+      setResult(null);
+      setCreatureReward(null);
+      startedAtRef.current = Date.now();
+      submittingRef.current = false;
+      focusAnswer(inputRef);
+    } catch {
+      setFeedback("Could not start the challenge.");
+    }
   }
 
   async function submitAnswer() {
@@ -1262,6 +1278,7 @@ function ChallengeMode({
       setResult(data);
     } catch {
       setAnswerValue(inputRef, submittedAnswer);
+      setFeedback("Could not save the challenge. Your answer is still here.");
       submittingRef.current = false;
     }
   }
@@ -1281,9 +1298,25 @@ function ChallengeMode({
     <section className="panel">
       {questions.length === 0 && !result && (
         <div className="challengeSetup">
+          <div className="segmented" aria-label="Challenge length">
+            {[10, 15, 20].map((limit) => (
+              <button key={limit} type="button" className={count === limit ? "active" : ""} onClick={() => setCount(limit)}>
+                {limit}
+              </button>
+            ))}
+          </div>
           <label>
             Questions
-            <input type="number" min={1} max={100} value={count} onChange={(event) => setCount(Number(event.target.value))} />
+            <input
+              type="number"
+              min={1}
+              max={100}
+              value={Number.isFinite(count) ? count : ""}
+              onChange={(event) => {
+                const next = Number(event.target.value);
+                setCount(Number.isFinite(next) ? next : initialCount);
+              }}
+            />
           </label>
           <button type="button" onClick={start}>
             Start challenge
@@ -1311,8 +1344,10 @@ function ChallengeMode({
             />
           </form>
           <NumberPad onPress={pressNumberPad} />
+          {feedback && <div className="feedback wrong">{feedback}</div>}
         </div>
       )}
+      {feedback && !current && <p className="error">{feedback}</p>}
       {result && (
         <ChallengeResults
           result={result}
@@ -1431,7 +1466,7 @@ function DashboardView({ dashboard, tables }: { dashboard: Dashboard | null; tab
   const [showFactLabels, setShowFactLabels] = useState(false);
   const selectedTables = useMemo(() => [...tables].sort((a, b) => a - b), [tables]);
   const selectedCells = useMemo(
-    () => (dashboard?.cells || []).filter((cell) => selectedTables.includes(cell.a) && selectedTables.includes(cell.b)),
+    () => (dashboard?.cells || []).filter((cell) => selectedTables.includes(cell.a)),
     [dashboard, selectedTables]
   );
   const selectedTotals = useMemo(() => {
@@ -1465,8 +1500,8 @@ function DashboardView({ dashboard, tables }: { dashboard: Dashboard | null; tab
           Show facts in heat map boxes
         </label>
       </div>
-      <HeatMap title="Accuracy" cells={selectedCells} tables={selectedTables} colourKey="accuracy_colour" valueKey="accuracy" showFactLabels={showFactLabels} />
-      <HeatMap title="Speed" cells={selectedCells} tables={selectedTables} colourKey="speed_colour" valueKey="average_time_ms" showFactLabels={showFactLabels} speed />
+      <HeatMap title="Accuracy" cells={selectedCells} rows={selectedTables} columns={ALL_TABLES} colourKey="accuracy_colour" valueKey="accuracy" showFactLabels={showFactLabels} />
+      <HeatMap title="Speed" cells={selectedCells} rows={selectedTables} columns={ALL_TABLES} colourKey="speed_colour" valueKey="average_time_ms" showFactLabels={showFactLabels} speed />
       <div className="split">
         <FactList title="Strengths" facts={selectedStrengths} />
         <FactList title="Weaknesses" facts={selectedWeaknesses} />
@@ -1546,7 +1581,8 @@ function FactMiniList({ facts }: { facts: DashboardCell[] }) {
 function HeatMap({
   title,
   cells,
-  tables,
+  rows,
+  columns,
   colourKey,
   valueKey,
   showFactLabels,
@@ -1554,7 +1590,8 @@ function HeatMap({
 }: {
   title: string;
   cells: DashboardCell[];
-  tables: number[];
+  rows: number[];
+  columns: number[];
   colourKey: "accuracy_colour" | "speed_colour";
   valueKey: "accuracy" | "average_time_ms";
   showFactLabels: boolean;
@@ -1584,18 +1621,18 @@ function HeatMap({
         <h2>{title}</h2>
       </div>
       <div className="heatMapFrame">
-        <div className="heatMap" style={{ gridTemplateColumns: `54px repeat(${tables.length}, minmax(58px, 1fr)) 54px` }}>
+        <div className="heatMap" style={{ gridTemplateColumns: `54px repeat(${columns.length}, minmax(58px, 1fr)) 54px` }}>
           <div className="heatCorner" />
-          {tables.map((table) => (
+          {columns.map((table) => (
             <div key={`${title}-col-${table}`} className="heatHeader">
               {table}
             </div>
           ))}
           <div className="heatCorner" />
-          {tables.map((row) => (
+          {rows.map((row) => (
             <div className="heatRow" key={`${title}-row-${row}`} style={{ display: "contents" }}>
               <div className="heatHeader">{row}</div>
-              {tables.map((column) => {
+              {columns.map((column) => {
                 const cell = cellByPair.get(`${row}-${column}`);
                 const value = cell ? cell[valueKey] : null;
                 return (

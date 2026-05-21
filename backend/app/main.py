@@ -141,6 +141,22 @@ def user_payload(user: User) -> dict:
     }
 
 
+def create_local_user(db: Session, payload: UserCreate, allow_admin: bool) -> User:
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name is required")
+    existing = db.scalar(select(User).where(User.name == name))
+    if existing:
+        return existing
+    has_users = db.scalar(select(User.id).limit(1)) is not None
+    user = User(name=name, is_admin=not has_users or (allow_admin and payload.is_admin))
+    set_user_password(user, payload.password if allow_admin or not has_users else None)
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
 def facts_for_tables(db: Session, tables: list[int]) -> list[Fact]:
     clean_tables = sorted({table for table in tables if 2 <= table <= 12})
     if not clean_tables:
@@ -174,6 +190,8 @@ def reset_user_progress(db: Session, user: User) -> None:
     user.xp = 0
     user.level = 1
     user.stage = "Egg"
+    user.unlocked_cosmetics = '["starter-star"]'
+    user.selected_cosmetic = "starter-star"
     user.weekly_practice_days = "[]"
     user.last_weekly_reset_at = None
     user.weekly_goal_awarded_week = ""
@@ -246,18 +264,7 @@ def list_users(db: Session = Depends(get_db)) -> list[dict]:
 
 @app.post("/users")
 def create_user(payload: UserCreate, db: Session = Depends(get_db)) -> dict:
-    name = payload.name.strip()
-    if not name:
-        raise HTTPException(status_code=400, detail="Name is required")
-    existing = db.scalar(select(User).where(User.name == name))
-    if existing:
-        return user_payload(existing)
-    has_users = db.scalar(select(User.id).limit(1)) is not None
-    user = User(name=name, is_admin=not has_users or payload.is_admin)
-    set_user_password(user, payload.password)
-    db.add(user)
-    db.commit()
-    db.refresh(user)
+    user = create_local_user(db, payload, allow_admin=False)
     return user_payload(user)
 
 
@@ -280,7 +287,8 @@ def admin_list_users(admin_user_id: int, db: Session = Depends(get_db)) -> list[
 @app.post("/admin/{admin_user_id}/users")
 def admin_create_user(admin_user_id: int, payload: UserCreate, db: Session = Depends(get_db)) -> dict:
     require_admin(db, admin_user_id)
-    return create_user(payload, db)
+    user = create_local_user(db, payload, allow_admin=True)
+    return user_payload(user)
 
 
 @app.patch("/admin/{admin_user_id}/users/{target_user_id}")
