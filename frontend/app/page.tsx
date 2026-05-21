@@ -193,7 +193,8 @@ export default function Home() {
   async function loadUsers() {
     const data = await api<User[]>("/users");
     setUsers(data);
-    setActiveUser((current) => current || data[0] || null);
+    setActiveUser((current) => (current ? data.find((user) => user.id === current.id) || data[0] || null : data[0] || null));
+    return data;
   }
 
   useEffect(() => {
@@ -234,8 +235,39 @@ export default function Home() {
     if (!name.trim()) return;
     const user = await api<User>("/users", { method: "POST", body: JSON.stringify({ name }) });
     setName("");
-    await loadUsers();
-    setActiveUser(user);
+    const updatedUsers = await loadUsers();
+    const refreshedUser = updatedUsers.find((item) => item.id === user.id) || user;
+    setActiveUser(refreshedUser);
+    if (refreshedUser.is_admin) {
+      const adminList = await api<User[]>(`/admin/${refreshedUser.id}/users`);
+      setAdminUsers(adminList);
+    }
+  }
+
+  async function refreshActiveWorkspace() {
+    const updatedUsers = await loadUsers();
+    const currentUser = activeUser ? updatedUsers.find((user) => user.id === activeUser.id) || null : updatedUsers[0] || null;
+    if (!currentUser) {
+      setCreature(null);
+      setQuests([]);
+      setDashboard(null);
+      setAdminUsers([]);
+      return;
+    }
+    setActiveUser(currentUser);
+    const updatedCreature = await api<Creature>(`/users/${currentUser.id}/creature`);
+    setCreature(updatedCreature);
+    await loadQuests(currentUser.id);
+    if (currentUser.is_admin) {
+      const adminList = await api<User[]>(`/admin/${currentUser.id}/users`);
+      setAdminUsers(adminList);
+    } else {
+      setAdminUsers([]);
+    }
+    if (tab === "dashboard") {
+      const updatedDashboard = await api<Dashboard>(`/dashboard/${currentUser.id}`);
+      setDashboard(updatedDashboard);
+    }
   }
 
   async function updateCreature(creatureType: string, creatureName: string) {
@@ -330,10 +362,7 @@ export default function Home() {
             <AdminPanel
               adminUser={activeUser}
               users={adminUsers}
-              onRefresh={async () => {
-                await loadUsers();
-                await loadAdminUsers();
-              }}
+              onRefresh={refreshActiveWorkspace}
             />
           )}
         </details>
@@ -972,13 +1001,14 @@ function PracticeMode({
               inputMode="numeric"
               pattern="[0-9]*"
               autoComplete="off"
+              maxLength={4}
+              aria-label="Answer"
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
                   event.preventDefault();
                   submitAnswer();
                 }
               }}
-              aria-label="Answer"
             />
           </form>
           <NumberPad onPress={pressNumberPad} />
@@ -1019,6 +1049,7 @@ function QuestMode({
   const [practicedDivision, setPracticedDivision] = useState(false);
   const [factsPractised, setFactsPractised] = useState<number[]>([]);
   const [result, setResult] = useState<QuestCompleteResult | null>(null);
+  const [sessionReward, setSessionReward] = useState<Creature | null>(null);
   const startedAtRef = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const submittingRef = useRef(false);
@@ -1031,6 +1062,7 @@ function QuestMode({
     setAttemptNumber(1);
     setFeedback("");
     setResult(null);
+    setSessionReward(null);
     startedAtRef.current = Date.now();
     submittingRef.current = false;
     focusAnswer(inputRef);
@@ -1068,6 +1100,7 @@ function QuestMode({
           },
           nextFacts
         );
+        setSessionReward(completed?.sessionCreature || null);
         setResult(completed?.questResult || null);
       } catch {
         setFeedback("Quest answers were recorded, but the quest reward could not be saved.");
@@ -1139,7 +1172,7 @@ function QuestMode({
           <p>
             You got {firstAttemptCorrectCount} right first time and fixed {secondTryCorrectCount} on your second try.
           </p>
-          <p>{creature?.creature_name || "Your companion"} gained {result.creature.xp_gained} XP.</p>
+          <p>{creature?.creature_name || "Your companion"} gained {result.creature.xp_gained + (sessionReward?.xp_gained || 0)} XP.</p>
           {result.creature.stage_message && <p>{result.creature.stage_message}</p>}
           <p className="quiet">{result.learning_message}</p>
           {result.facts_practised.length > 0 && <p className="quiet">Facts practised: {result.facts_practised.join(", ")}</p>}
@@ -1166,6 +1199,7 @@ function QuestMode({
           inputMode="numeric"
           pattern="[0-9]*"
           autoComplete="off"
+          maxLength={4}
           onKeyDown={(event) => {
             if (event.key === "Enter") {
               event.preventDefault();
@@ -1335,6 +1369,8 @@ function ChallengeMode({
               inputMode="numeric"
               pattern="[0-9]*"
               autoComplete="off"
+              maxLength={4}
+              aria-label="Answer"
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
                   event.preventDefault();
