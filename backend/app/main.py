@@ -1,18 +1,21 @@
+import hashlib
+import secrets
+from collections import defaultdict
 from datetime import datetime, timezone
 from random import choice
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import desc, inspect, select, text
+from sqlalchemy import desc, func, inspect, select, text
 from sqlalchemy.orm import Session
 
 from .adaptive import (
-    QUESTION_TYPES,
     choose_fact,
     heat_colour_accuracy,
     heat_colour_speed,
     normalize_answer,
     priority_score,
+    question_types_for_mode,
     question_for_fact,
 )
 from .creatures import (
@@ -39,6 +42,7 @@ from .schemas import (
     PracticeAnswer,
     QuestComplete,
     TablesRequest,
+    UserAdminUpdate,
     UserCreate,
 )
 from .seed import seed_facts
@@ -69,6 +73,10 @@ def migrate_user_creature_columns() -> None:
     existing = {column["name"] for column in inspector.get_columns("users")}
     migrations = {
         "creature_type": "ALTER TABLE users ADD COLUMN creature_type VARCHAR(32) NOT NULL DEFAULT 'Blob'",
+        "is_admin": "ALTER TABLE users ADD COLUMN is_admin BOOLEAN NOT NULL DEFAULT 0",
+        "password_hash": "ALTER TABLE users ADD COLUMN password_hash VARCHAR(128)",
+        "password_salt": "ALTER TABLE users ADD COLUMN password_salt VARCHAR(32)",
+        "password_updated_at": "ALTER TABLE users ADD COLUMN password_updated_at DATETIME",
         "creature_name": "ALTER TABLE users ADD COLUMN creature_name VARCHAR(80) NOT NULL DEFAULT 'Buddy'",
         "energy": "ALTER TABLE users ADD COLUMN energy INTEGER NOT NULL DEFAULT 60",
         "last_practised_at": "ALTER TABLE users ADD COLUMN last_practised_at DATETIME",
@@ -87,6 +95,12 @@ def migrate_user_creature_columns() -> None:
         for column, statement in migrations.items():
             if column not in existing:
                 connection.execute(text(statement))
+        connection.execute(
+            text(
+                "UPDATE users SET is_admin = 1 WHERE id = (SELECT id FROM users ORDER BY created_at, id LIMIT 1) "
+                "AND NOT EXISTS (SELECT 1 FROM users WHERE is_admin = 1)"
+            )
+        )
 
 
 def get_user(db: Session, user_id: int) -> User:
@@ -96,11 +110,73 @@ def get_user(db: Session, user_id: int) -> User:
     return user
 
 
+def require_admin(db: Session, user_id: int) -> User:
+    user = get_user(db, user_id)
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin profile required")
+    return user
+
+
+def set_user_password(user: User, password: str | None) -> None:
+    if not password:
+        user.password_hash = None
+        user.password_salt = None
+        user.password_updated_at = None
+        return
+    salt = secrets.token_hex(12)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 120_000).hex()
+    user.password_salt = salt
+    user.password_hash = digest
+    user.password_updated_at = datetime.now(timezone.utc)
+
+
+def user_payload(user: User) -> dict:
+    return {
+        "id": user.id,
+        "name": user.name,
+        "creature_type": user.creature_type,
+        "creature_name": user.creature_name,
+        "is_admin": bool(user.is_admin),
+        "password_set": bool(user.password_hash),
+    }
+
+
 def facts_for_tables(db: Session, tables: list[int]) -> list[Fact]:
     clean_tables = sorted({table for table in tables if 2 <= table <= 12})
     if not clean_tables:
         raise HTTPException(status_code=400, detail="Select at least one table from 2 to 12")
     return list(db.scalars(select(Fact).where(Fact.a.in_(clean_tables))).all())
+
+
+def recent_attempts_by_fact(db: Session, user_id: int, limit: int = 800) -> dict[int, list[QuestionAttempt]]:
+    attempts = db.scalars(
+        select(QuestionAttempt).where(QuestionAttempt.user_id == user_id).order_by(desc(QuestionAttempt.created_at)).limit(limit)
+    ).all()
+    grouped: dict[int, list[QuestionAttempt]] = defaultdict(list)
+    for attempt in attempts:
+        if len(grouped[attempt.fact_id]) < 10:
+            grouped[attempt.fact_id].append(attempt)
+    return grouped
+
+
+def reset_user_progress(db: Session, user: User) -> None:
+    challenge_ids = db.scalars(select(ChallengeSession.id).where(ChallengeSession.user_id == user.id)).all()
+    if challenge_ids:
+        db.query(ChallengeAttempt).filter(ChallengeAttempt.session_id.in_(challenge_ids)).delete(synchronize_session=False)
+    db.query(ChallengeSession).filter(ChallengeSession.user_id == user.id).delete(synchronize_session=False)
+    db.query(QuestionAttempt).filter(QuestionAttempt.user_id == user.id).delete(synchronize_session=False)
+    db.query(FactStat).filter(FactStat.user_id == user.id).delete(synchronize_session=False)
+    db.query(TrainingQuest).filter(TrainingQuest.user_id == user.id).delete(synchronize_session=False)
+    user.energy = 60
+    user.last_practised_at = None
+    user.total_questions_answered = 0
+    user.total_sessions_completed = 0
+    user.xp = 0
+    user.level = 1
+    user.stage = "Egg"
+    user.weekly_practice_days = "[]"
+    user.last_weekly_reset_at = None
+    user.weekly_goal_awarded_week = ""
 
 
 def get_or_create_stat(db: Session, user_id: int, fact_id: int) -> FactStat:
@@ -165,15 +241,7 @@ def version() -> dict:
 @app.get("/users")
 def list_users(db: Session = Depends(get_db)) -> list[dict]:
     users = db.scalars(select(User).order_by(User.name)).all()
-    return [
-        {
-            "id": user.id,
-            "name": user.name,
-            "creature_type": user.creature_type,
-            "creature_name": user.creature_name,
-        }
-        for user in users
-    ]
+    return [user_payload(user) for user in users]
 
 
 @app.post("/users")
@@ -183,12 +251,87 @@ def create_user(payload: UserCreate, db: Session = Depends(get_db)) -> dict:
         raise HTTPException(status_code=400, detail="Name is required")
     existing = db.scalar(select(User).where(User.name == name))
     if existing:
-        return {"id": existing.id, "name": existing.name}
-    user = User(name=name)
+        return user_payload(existing)
+    has_users = db.scalar(select(User.id).limit(1)) is not None
+    user = User(name=name, is_admin=not has_users or payload.is_admin)
+    set_user_password(user, payload.password)
     db.add(user)
     db.commit()
     db.refresh(user)
-    return {"id": user.id, "name": user.name}
+    return user_payload(user)
+
+
+@app.get("/admin/{admin_user_id}/users")
+def admin_list_users(admin_user_id: int, db: Session = Depends(get_db)) -> list[dict]:
+    require_admin(db, admin_user_id)
+    users = db.scalars(select(User).order_by(User.created_at, User.id)).all()
+    return [
+        {
+            **user_payload(user),
+            "total_questions_answered": user.total_questions_answered or 0,
+            "total_sessions_completed": user.total_sessions_completed or 0,
+            "level": user.level or 1,
+            "energy": decayed_energy(user),
+        }
+        for user in users
+    ]
+
+
+@app.post("/admin/{admin_user_id}/users")
+def admin_create_user(admin_user_id: int, payload: UserCreate, db: Session = Depends(get_db)) -> dict:
+    require_admin(db, admin_user_id)
+    return create_user(payload, db)
+
+
+@app.patch("/admin/{admin_user_id}/users/{target_user_id}")
+def admin_update_user(admin_user_id: int, target_user_id: int, payload: UserAdminUpdate, db: Session = Depends(get_db)) -> dict:
+    require_admin(db, admin_user_id)
+    user = get_user(db, target_user_id)
+    if payload.name is not None:
+        new_name = payload.name.strip()
+        if not new_name:
+            raise HTTPException(status_code=400, detail="Name is required")
+        existing = db.scalar(select(User).where(User.name == new_name, User.id != user.id))
+        if existing:
+            raise HTTPException(status_code=400, detail="Name already exists")
+        user.name = new_name
+    if payload.is_admin is not None:
+        if user.is_admin and not payload.is_admin:
+            admin_count = db.scalar(select(func.count()).select_from(User).where(User.is_admin == True))  # noqa: E712
+            if admin_count and admin_count <= 1:
+                raise HTTPException(status_code=400, detail="At least one admin is required")
+        user.is_admin = payload.is_admin
+    if payload.password is not None:
+        set_user_password(user, payload.password)
+    db.commit()
+    db.refresh(user)
+    return user_payload(user)
+
+
+@app.post("/admin/{admin_user_id}/users/{target_user_id}/reset-progress")
+def admin_reset_progress(admin_user_id: int, target_user_id: int, db: Session = Depends(get_db)) -> dict:
+    require_admin(db, admin_user_id)
+    user = get_user(db, target_user_id)
+    reset_user_progress(db, user)
+    db.commit()
+    db.refresh(user)
+    return {"user": user_payload(user), "creature": creature_payload(user)}
+
+
+@app.delete("/admin/{admin_user_id}/users/{target_user_id}")
+def admin_delete_user(admin_user_id: int, target_user_id: int, db: Session = Depends(get_db)) -> dict:
+    require_admin(db, admin_user_id)
+    if admin_user_id == target_user_id:
+        raise HTTPException(status_code=400, detail="Admins cannot delete the active admin profile")
+    user = get_user(db, target_user_id)
+    if user.is_admin:
+        admin_count = db.scalar(select(func.count()).select_from(User).where(User.is_admin == True))  # noqa: E712
+        if admin_count and admin_count <= 1:
+            raise HTTPException(status_code=400, detail="At least one admin is required")
+    reset_user_progress(db, user)
+    db.delete(user)
+    db.commit()
+    return {"deleted": True}
 
 
 @app.get("/creature-types")
@@ -229,6 +372,8 @@ def complete_creature_session(user_id: int, payload: CreatureSessionComplete, db
     now = datetime.now(timezone.utc)
     previous_level, previous_stage, _, _ = sync_level_and_stage(user)
     energy_gained = energy_gain_for_questions(payload.questions_completed)
+    current_energy = decayed_energy(user, now)
+    energy_overflow_xp = max((current_energy + energy_gained) - 100, 0)
     weekly_days_completed, weekly_goal_completed = add_weekly_practice_day(user, now)
     xp_gained, reward_reasons = session_rewards(
         mode=payload.mode,
@@ -240,7 +385,10 @@ def complete_creature_session(user_id: int, payload: CreatureSessionComplete, db
         practiced_division=payload.practiced_division,
         weekly_goal_completed=weekly_goal_completed,
     )
-    user.energy = min(100, decayed_energy(user, now) + energy_gained)
+    if energy_overflow_xp:
+        xp_gained += energy_overflow_xp
+        reward_reasons.append(f"Full-energy training bonus +{energy_overflow_xp} XP")
+    user.energy = min(100, current_energy + energy_gained)
     user.xp = (user.xp or 0) + xp_gained
     user.last_practised_at = now
     user.total_questions_answered = (user.total_questions_answered or 0) + payload.questions_completed
@@ -362,8 +510,9 @@ def next_practice_question(payload: TablesRequest, db: Session = Depends(get_db)
     facts = facts_for_tables(db, payload.tables)
     stats = db.scalars(select(FactStat).where(FactStat.user_id == payload.user_id)).all()
     stats_by_fact_id = {stat.fact_id: stat for stat in stats}
-    fact = choose_fact(facts, stats_by_fact_id)
-    question_type = choice(QUESTION_TYPES)
+    recent_by_fact_id = recent_attempts_by_fact(db, payload.user_id)
+    fact = choose_fact(facts, stats_by_fact_id, recent_by_fact_id)
+    question_type = choice(question_types_for_mode(payload.question_mode, payload.tables))
     prompt, _ = question_for_fact(fact, question_type)
     return {
         "fact_id": fact.id,
@@ -371,7 +520,7 @@ def next_practice_question(payload: TablesRequest, db: Session = Depends(get_db)
         "b": fact.b,
         "question_type": question_type,
         "prompt": prompt,
-        "priority_score": round(priority_score(stats_by_fact_id.get(fact.id)), 3),
+        "priority_score": round(priority_score(stats_by_fact_id.get(fact.id), recent_attempts=recent_by_fact_id.get(fact.id, [])), 3),
     }
 
 
@@ -411,10 +560,11 @@ def start_challenge(payload: ChallengeStart, db: Session = Depends(get_db)) -> d
     facts = facts_for_tables(db, payload.tables)
     stats = db.scalars(select(FactStat).where(FactStat.user_id == payload.user_id)).all()
     stats_by_fact_id = {stat.fact_id: stat for stat in stats}
+    recent_by_fact_id = recent_attempts_by_fact(db, payload.user_id)
     questions = []
     for _ in range(payload.question_count):
-        fact = choose_fact(facts, stats_by_fact_id)
-        question_type = choice(QUESTION_TYPES)
+        fact = choose_fact(facts, stats_by_fact_id, recent_by_fact_id)
+        question_type = choice(question_types_for_mode(payload.question_mode, payload.tables))
         prompt, _ = question_for_fact(fact, question_type)
         questions.append(
             {
@@ -627,6 +777,32 @@ def dashboard(user_id: int, db: Session = Depends(get_db)) -> dict:
         }
         for attempt in recent_attempts
     ]
+    daily_rows = db.execute(
+        text(
+            """
+            SELECT substr(created_at, 1, 10) AS day,
+                   count(*) AS attempts,
+                   sum(CASE WHEN is_correct THEN 1 ELSE 0 END) AS correct,
+                   avg(response_time_ms) AS average_time_ms
+            FROM question_attempts
+            WHERE user_id = :user_id
+            GROUP BY substr(created_at, 1, 10)
+            ORDER BY day DESC
+            LIMIT 30
+            """
+        ),
+        {"user_id": user_id},
+    ).all()
+    progress_over_time = [
+        {
+            "date": row.day,
+            "attempts": row.attempts,
+            "correct": row.correct or 0,
+            "accuracy": round((row.correct or 0) / row.attempts, 3) if row.attempts else None,
+            "average_time_ms": round(row.average_time_ms) if row.average_time_ms is not None else None,
+        }
+        for row in reversed(daily_rows)
+    ]
     return {
         "totals": totals,
         "cells": cells,
@@ -636,4 +812,5 @@ def dashboard(user_id: int, db: Session = Depends(get_db)) -> dict:
         "needing_exposure": needing_exposure,
         "improving": improving,
         "recent_history": recent_history,
+        "progress_over_time": progress_over_time,
     }

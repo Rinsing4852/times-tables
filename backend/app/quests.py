@@ -10,7 +10,7 @@ from .creatures import current_week_key
 from .models import Fact, FactStat, TrainingQuest
 
 
-APP_VERSION = "0.3.0"
+APP_VERSION = "0.4.0"
 
 
 @dataclass(frozen=True)
@@ -86,6 +86,17 @@ def table_to_strengthen(facts: list[Fact], stats_by_fact_id: dict[int, FactStat]
     return max(table_scores.items(), key=lambda item: sum(item[1]) / len(item[1]))[0]
 
 
+def table_with_least_practice(facts: list[Fact], stats_by_fact_id: dict[int, FactStat]) -> int:
+    table_counts = {}
+    for fact in facts:
+        stat = stats_by_fact_id.get(fact.id)
+        table_counts.setdefault(fact.a, 0)
+        table_counts[fact.a] += (stat.correct_count + stat.incorrect_count) if stat else 0
+    if not table_counts:
+        return 2
+    return min(table_counts.items(), key=lambda item: (item[1], item[0]))[0]
+
+
 def quest_definitions(facts: list[Fact], stats_by_fact_id: dict[int, FactStat]) -> list[QuestDefinition]:
     by_id = {fact.id: fact for fact in facts}
     weakest = weakest_facts(facts, stats_by_fact_id, 6)
@@ -93,9 +104,20 @@ def quest_definitions(facts: list[Fact], stats_by_fact_id: dict[int, FactStat]) 
     speedy = slower_but_accurate_facts(facts, stats_by_fact_id, 6) or weakest[:5]
     table = table_to_strengthen(facts, stats_by_fact_id)
     table_facts = [fact for fact in facts if fact.a == table][:8] or weakest[:6]
+    new_table = table_with_least_practice(facts, stats_by_fact_id)
+    new_table_facts = [fact for fact in facts if fact.a == new_table][:8] or facts[:8]
     mixed_ids = [fact.id for fact in weakest[:4] + speedy[:3] + table_facts[:3] if fact.id in by_id]
 
     return [
+        QuestDefinition(
+            quest_type="new_table",
+            title=f"New Table Explorer: {new_table}x",
+            description=f"Try a table that has not had much practice yet.",
+            question_count=10,
+            reward_xp=40,
+            reward_note="Quest reward: 40 XP",
+            fact_ids=[fact.id for fact in new_table_facts],
+        ),
         QuestDefinition(
             quest_type="tricky",
             title="Tricky Fact Tune-Up",

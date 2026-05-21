@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -19,6 +19,10 @@ class User(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    password_hash: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    password_salt: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    password_updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     creature_type: Mapped[str] = mapped_column(String(32), nullable=False, default="Blob")
     creature_name: Mapped[str] = mapped_column(String(80), nullable=False, default="Buddy")
     energy: Mapped[int] = mapped_column(Integer, nullable=False, default=60)

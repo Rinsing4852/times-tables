@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from math import exp
 from random import choices
 
-from .models import Fact, FactStat
+from .models import Fact, FactStat, QuestionAttempt
 
 
 QUESTION_TYPES = [
@@ -15,6 +15,13 @@ QUESTION_TYPES = [
     "missing_b",
     "missing_a",
 ]
+MULTIPLY_TYPES = ["multiply_ab", "multiply_ba", "missing_b", "missing_a"]
+DIVISION_TYPES = ["divide_product_by_a", "divide_product_by_b"]
+FOCUSED_TYPES = {
+    "mixed": ["multiply_ab", "divide_product_by_a", "missing_b"],
+    "multiply": ["multiply_ab", "missing_b"],
+    "division": ["divide_product_by_a"],
+}
 
 
 def as_aware_utc(value: datetime) -> datetime:
@@ -39,6 +46,17 @@ def question_for_fact(fact: Fact, question_type: str) -> tuple[str, int]:
     raise ValueError(f"Unknown question type: {question_type}")
 
 
+def question_types_for_mode(question_mode: str, focused_tables: list[int] | None = None) -> list[str]:
+    focused = len(set(focused_tables or [])) == 1
+    if focused:
+        return FOCUSED_TYPES.get(question_mode, FOCUSED_TYPES["mixed"])
+    if question_mode == "multiply":
+        return MULTIPLY_TYPES
+    if question_mode == "division":
+        return DIVISION_TYPES
+    return QUESTION_TYPES
+
+
 def normalize_answer(answer: str) -> int | None:
     try:
         return int(str(answer).strip())
@@ -46,7 +64,19 @@ def normalize_answer(answer: str) -> int | None:
         return None
 
 
-def priority_score(stat: FactStat | None, now: datetime | None = None) -> float:
+def recent_attempt_score(recent_attempts: list[QuestionAttempt]) -> float | None:
+    if not recent_attempts:
+        return None
+    window = recent_attempts[:10]
+    total = len(window)
+    errors = sum(1 for attempt in window if not attempt.is_correct)
+    avg_ms = sum(attempt.response_time_ms for attempt in window) / total
+    error_component = errors / total
+    speed_component = min(max((avg_ms - 2500) / 5000, 0), 1)
+    return error_component + speed_component
+
+
+def priority_score(stat: FactStat | None, now: datetime | None = None, recent_attempts: list[QuestionAttempt] | None = None) -> float:
     now = as_aware_utc(now or datetime.now(timezone.utc))
     if stat is None or (stat.correct_count + stat.incorrect_count) == 0:
         return 2.4
@@ -69,11 +99,22 @@ def priority_score(stat: FactStat | None, now: datetime | None = None) -> float:
         recent_failure_boost = 0.8 * exp(-hours_since_failure / 24)
 
     mastery_discount = min(stat.current_streak * 0.12, 0.8)
-    return max(0.05, error_rate + slowness_score + spacing_score + recent_failure_boost - mastery_discount)
+    base_score = error_rate + slowness_score + spacing_score + recent_failure_boost - mastery_discount
+    recent_score = recent_attempt_score(recent_attempts or [])
+    if recent_score is not None:
+        base_score = (base_score * 0.55) + (recent_score * 0.45) + (spacing_score * 0.2)
+    return max(0.08, base_score)
 
 
-def choose_fact(facts: list[Fact], stats_by_fact_id: dict[int, FactStat]) -> Fact:
-    weights = [priority_score(stats_by_fact_id.get(fact.id)) for fact in facts]
+def choose_fact(
+    facts: list[Fact],
+    stats_by_fact_id: dict[int, FactStat],
+    recent_attempts_by_fact_id: dict[int, list[QuestionAttempt]] | None = None,
+) -> Fact:
+    weights = [
+        priority_score(stats_by_fact_id.get(fact.id), recent_attempts=(recent_attempts_by_fact_id or {}).get(fact.id, []))
+        for fact in facts
+    ]
     return choices(facts, weights=weights, k=1)[0]
 
 

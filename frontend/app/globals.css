@@ -657,6 +657,64 @@ h2 {
   background: #cfdbea;
 }
 
+.dangerButton {
+  background: #d84949;
+}
+
+.dangerButton:hover {
+  background: #b83232;
+}
+
+.dangerButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.compactPanel {
+  display: grid;
+  gap: 10px;
+}
+
+.fieldLabel {
+  color: var(--muted);
+  font-weight: 900;
+}
+
+.modeSegment {
+  width: min(520px, 100%);
+}
+
+.adminPanel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 116px);
+  width: min(760px, calc(100vw - 40px));
+  display: grid;
+  gap: 10px;
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 12px;
+}
+
+.adminPanel h2 {
+  margin: 0;
+}
+
+.adminCreate,
+.adminUserRow {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) minmax(120px, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.adminUserList {
+  display: grid;
+  gap: 8px;
+}
+
 .practiceSurface.compact {
   min-height: 280px;
 }
@@ -973,6 +1031,28 @@ h2 {
   overflow-x: auto;
 }
 
+.progressGrid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(96px, 1fr));
+  gap: 8px;
+}
+
+.progressDay {
+  display: grid;
+  gap: 4px;
+  min-height: 82px;
+  align-content: center;
+  border-radius: 8px;
+  background: #edf2f7;
+  padding: 10px;
+}
+
+.progressDay span,
+.progressDay small {
+  color: var(--muted);
+  font-weight: 800;
+}
+
 .tableStat {
   display: grid;
   gap: 4px;
@@ -1017,6 +1097,18 @@ h2 {
   }
 
   .creatureSetup {
+    grid-template-columns: 1fr;
+  }
+
+  .adminPanel {
+    position: static;
+    width: 100%;
+    margin-top: 8px;
+  }
+
+  .adminCreate,
+  .adminUserRow,
+  .progressGrid {
     grid-template-columns: 1fr;
   }
 

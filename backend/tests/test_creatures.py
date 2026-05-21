@@ -38,6 +38,15 @@ def test_energy_decay_is_capped_and_never_below_twenty() -> None:
     assert decayed_energy(user, now) == 20
 
 
+def test_energy_decay_drops_twenty_per_day() -> None:
+    user = DummyUser()
+    now = datetime(2026, 5, 18, tzinfo=timezone.utc)
+    user.energy = 100
+    user.last_practised_at = now - timedelta(days=2)
+
+    assert decayed_energy(user, now) == 60
+
+
 def test_status_messages_stay_neutral_and_encouraging() -> None:
     assert creature_status("Bramble", 90) == "Bramble is full of energy and ready to train."
     assert creature_status("Bramble", 60) == "Bramble is doing well. A quick practice will make them stronger."

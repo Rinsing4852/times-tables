@@ -116,13 +116,16 @@ pytest
 
 ## V1 Features
 
-- Multiple local user profiles.
+- Multiple local user profiles. The first profile created is the local admin profile.
+- Admin profiles can create other admins, rename profiles, reset passcodes, reset progress, and delete profiles.
 - A safe creature companion per profile with type, name, energy, XP, level, stage, weekly goal, and cosmetic unlocks.
 - Smart training quests generated from fact accuracy, speed, and recent mistakes.
+- A higher-reward explorer quest encourages tables that have had little or no practice.
+- Practice and challenge modes can be set to multiplication only, division only, or mixed questions.
 - Practice mode with multiplication, reversed multiplication, division, and missing-factor prompts.
 - One retry after an incorrect practice answer.
 - Challenge mode with no visible timer and end-of-session summary.
-- Per-user dashboard with accuracy and speed heat maps.
+- Per-user dashboard with accuracy and speed heat maps plus progress over time.
 - Per-fact stats for correctness, first-attempt accuracy, second-attempt accuracy, response time, last seen, and recent failures.
 - Rules-based adaptive priority scoring:
 
@@ -131,6 +134,7 @@ priority_score = error_rate + slowness_score + spacing_score + recent_failure_bo
 ```
 
 Weak, slow, recently failed, or stale facts are selected more often. Consistently correct and fast facts gradually appear less often.
+Recent performance uses the latest attempts for each fact, so strong facts appear less often while never disappearing entirely.
 
 ## Database Tables
 
@@ -146,6 +150,10 @@ The backend auto-creates tables on startup and seeds multiplication facts from 2
 
 Creature state is stored on each local user profile:
 
+- `is_admin`
+- `password_hash`
+- `password_salt`
+- `password_updated_at`
 - `creature_type`
 - `creature_name`
 - `energy`
@@ -164,6 +172,11 @@ Creature state is stored on each local user profile:
 
 - `GET /users`
 - `POST /users`
+- `GET /admin/{admin_user_id}/users`
+- `POST /admin/{admin_user_id}/users`
+- `PATCH /admin/{admin_user_id}/users/{target_user_id}`
+- `POST /admin/{admin_user_id}/users/{target_user_id}/reset-progress`
+- `DELETE /admin/{admin_user_id}/users/{target_user_id}`
 - `GET /version`
 - `GET /facts`
 - `GET /creature-types`

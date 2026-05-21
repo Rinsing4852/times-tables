@@ -25,8 +25,9 @@ def test_quest_definitions_include_core_training_types() -> None:
     definitions = quest_definitions(facts, stats)
     quest_types = {definition.quest_type for definition in definitions}
 
-    assert {"tricky", "division", "speed", "mistake", "table", "mixed"}.issubset(quest_types)
+    assert {"new_table", "tricky", "division", "speed", "mistake", "table", "mixed"}.issubset(quest_types)
     assert all(definition.reward_xp > 0 for definition in definitions)
+    assert next(definition for definition in definitions if definition.quest_type == "new_table").reward_xp == 40
 
 
 def test_quest_questions_use_division_forms_for_division_boost() -> None:

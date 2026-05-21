@@ -78,14 +78,7 @@ def decayed_energy(user: User, now: datetime | None = None) -> int:
         return energy
 
     days_since_practice = int((now.date() - as_aware_utc(user.last_practised_at).date()).days)
-    if days_since_practice <= 0:
-        decay = 0
-    elif days_since_practice == 1:
-        decay = 5
-    elif days_since_practice == 2:
-        decay = 10
-    else:
-        decay = 20
+    decay = max(days_since_practice, 0) * 20
     return max(20, energy - decay)
 
 
@@ -223,6 +216,8 @@ def creature_payload(
     current_xp = user.xp or 0
     current_level_threshold = xp_threshold_for_level(level)
     next_level_threshold = xp_threshold_for_level(level + 1)
+    next_stage_level = next((candidate for candidate in range(level + 1, 51) if stage_for_level(candidate) != current_stage), None)
+    next_stage_xp = xp_threshold_for_level(next_stage_level) if next_stage_level else None
     weekly_days = weekly_days_for_current_week(user)
     unlocked_keys = cosmetic_list(user)
     return {
@@ -237,6 +232,9 @@ def creature_payload(
         "xp_current_level": current_level_threshold,
         "xp_next_level": next_level_threshold,
         "xp_to_next_level": max(next_level_threshold - current_xp, 0),
+        "next_stage": stage_for_level(next_stage_level) if next_stage_level else None,
+        "next_stage_level": next_stage_level,
+        "xp_to_next_stage": max((next_stage_xp or current_xp) - current_xp, 0) if next_stage_xp is not None else 0,
         "xp_progress": 1
         if next_level_threshold == current_level_threshold
         else min(max((current_xp - current_level_threshold) / (next_level_threshold - current_level_threshold), 0), 1),

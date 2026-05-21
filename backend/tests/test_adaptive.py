@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
-from app.adaptive import priority_score, question_for_fact
-from app.models import Fact, FactStat
+from app.adaptive import priority_score, question_for_fact, question_types_for_mode
+from app.models import Fact, FactStat, QuestionAttempt
 
 
 def test_priority_is_high_for_unseen_fact():
@@ -70,3 +70,28 @@ def test_question_variants_return_expected_answers():
     assert question_for_fact(fact, "divide_product_by_b") == ("21 ÷ 7 = ?", 3)
     assert question_for_fact(fact, "missing_b") == ("3 x ? = 21", 7)
     assert question_for_fact(fact, "missing_a") == ("? x 7 = 21", 3)
+
+
+def test_question_mode_for_focused_table_keeps_table_in_prompt():
+    assert question_types_for_mode("mixed", [10]) == ["multiply_ab", "divide_product_by_a", "missing_b"]
+    assert question_types_for_mode("multiply", [10]) == ["multiply_ab", "missing_b"]
+    assert question_types_for_mode("division", [10]) == ["divide_product_by_a"]
+
+
+def test_recent_attempts_influence_priority_without_zeroing_mastered_facts():
+    now = datetime.now(timezone.utc)
+    stat = FactStat(
+        correct_count=30,
+        incorrect_count=0,
+        total_response_time_ms=30000,
+        response_count=30,
+        current_streak=30,
+        last_seen=now,
+    )
+    recent_slow_errors = [
+        QuestionAttempt(fact_id=1, user_id=1, question_type="multiply_ab", prompt="6 x 7 = ?", answer_given="40", correct_answer=42, is_correct=False, attempt_number=1, response_time_ms=7000)
+        for _ in range(5)
+    ]
+
+    assert priority_score(stat, now, recent_attempts=recent_slow_errors) > priority_score(stat, now)
+    assert priority_score(stat, now) >= 0.08

@@ -2,6 +2,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+QuestionMode = Literal["mixed", "multiply", "division"]
+
 QuestionType = Literal[
     "multiply_ab",
     "multiply_ba",
@@ -16,6 +18,14 @@ CreatureType = Literal["Blob", "Dragon", "Robot", "Forest Sprite", "Rock Golem",
 
 class UserCreate(BaseModel):
     name: str = Field(min_length=1, max_length=80)
+    is_admin: bool = False
+    password: str | None = Field(default=None, max_length=80)
+
+
+class UserAdminUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    is_admin: bool | None = None
+    password: str | None = Field(default=None, max_length=80)
 
 
 class UserOut(BaseModel):
@@ -28,6 +38,7 @@ class UserOut(BaseModel):
 class TablesRequest(BaseModel):
     user_id: int
     tables: list[int] = Field(min_length=1)
+    question_mode: QuestionMode = "mixed"
 
 
 class PracticeAnswer(BaseModel):
@@ -43,6 +54,7 @@ class ChallengeStart(BaseModel):
     user_id: int
     tables: list[int] = Field(min_length=1)
     question_count: int = Field(ge=1, le=100)
+    question_mode: QuestionMode = "mixed"
 
 
 class ChallengeAnswer(BaseModel):

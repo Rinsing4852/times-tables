@@ -4,7 +4,8 @@ import { FormEvent, RefObject, useCallback, useEffect, useMemo, useRef, useState
 import { TableSelector } from "../components/TableSelector";
 import { api } from "../lib/api";
 
-type User = { id: number; name: string };
+type User = { id: number; name: string; is_admin: boolean; password_set: boolean; creature_type?: string; creature_name?: string };
+type QuestionMode = "mixed" | "multiply" | "division";
 type Creature = {
   user_id: number;
   creature_type: string;
@@ -17,6 +18,9 @@ type Creature = {
   xp_current_level: number;
   xp_next_level: number;
   xp_to_next_level: number;
+  next_stage: string | null;
+  next_stage_level: number | null;
+  xp_to_next_stage: number;
   xp_progress: number;
   status_message: string;
   energy_gained: number;
@@ -84,6 +88,7 @@ type Dashboard = {
   needing_exposure: DashboardCell[];
   improving: DashboardCell[];
   recent_history: { prompt: string; is_correct: boolean; response_time_ms: number; mode: string; created_at: string }[];
+  progress_over_time: { date: string; attempts: number; correct: number; accuracy: number | null; average_time_ms: number | null }[];
 };
 type ChallengeResult = {
   total_time_ms: number;
@@ -174,6 +179,7 @@ export default function Home() {
   const [name, setName] = useState("");
   const [tab, setTab] = useState<Mode>("home");
   const [tables, setTables] = useState<number[]>(DEFAULT_TABLES);
+  const [questionMode, setQuestionMode] = useState<QuestionMode>("mixed");
   const [status, setStatus] = useState("");
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [practicePreset, setPracticePreset] = useState(10);
@@ -181,6 +187,7 @@ export default function Home() {
   const [quests, setQuests] = useState<TrainingQuest[]>([]);
   const [activeQuest, setActiveQuest] = useState<QuestStart | null>(null);
   const [appVersion, setAppVersion] = useState("");
+  const [adminUsers, setAdminUsers] = useState<User[]>([]);
 
   async function loadUsers() {
     const data = await api<User[]>("/users");
@@ -199,6 +206,12 @@ export default function Home() {
     }
   }, [activeUser, tab]);
 
+  const loadAdminUsers = useCallback(async () => {
+    if (!activeUser?.is_admin) return;
+    const data = await api<User[]>(`/admin/${activeUser.id}/users`);
+    setAdminUsers(data);
+  }, [activeUser]);
+
   const loadQuests = useCallback(async (userId = activeUser?.id) => {
     if (!userId) return;
     const data = await api<{ quests: TrainingQuest[] }>(`/users/${userId}/quests`);
@@ -212,7 +225,8 @@ export default function Home() {
     }
     api<Creature>(`/users/${activeUser.id}/creature`).then(setCreature).catch((error) => setStatus(error.message));
     loadQuests(activeUser.id).catch((error) => setStatus(error.message));
-  }, [activeUser, loadQuests]);
+    loadAdminUsers().catch((error) => setStatus(error.message));
+  }, [activeUser, loadQuests, loadAdminUsers]);
 
   async function createProfile(event: FormEvent) {
     event.preventDefault();
@@ -311,6 +325,16 @@ export default function Home() {
             <button type="submit">Add</button>
             {appVersion && <p className="versionLine">Recall Forge v{appVersion}</p>}
           </form>
+          {activeUser?.is_admin && (
+            <AdminPanel
+              adminUser={activeUser}
+              users={adminUsers}
+              onRefresh={async () => {
+                await loadUsers();
+                await loadAdminUsers();
+              }}
+            />
+          )}
         </details>
       </header>
 
@@ -341,11 +365,24 @@ export default function Home() {
               <summary>Tables: {tables.join(", ")}</summary>
               <TableSelector selected={tables} onChange={setTables} />
             </details>
+            <div className="panel compactPanel">
+              <span className="fieldLabel">Question type</span>
+              <div className="segmented modeSegment" aria-label="Question type">
+                {([
+                  ["mixed", "Mixed"],
+                  ["multiply", "Multiplication"],
+                  ["division", "Division"],
+                ] as const).map(([value, label]) => (
+                  <button key={value} type="button" className={questionMode === value ? "active" : ""} onClick={() => setQuestionMode(value)}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
 
             {tab === "home" && (
               <CreatureHome
                 creature={creature}
-                onUpdateCreature={updateCreature}
                 onStartPractice={startPracticeSession}
                 onStartChallenge={startChallengeRound}
                 onShowProfile={() => setTab("profile")}
@@ -357,6 +394,7 @@ export default function Home() {
               <PracticeMode
                 user={activeUser}
                 tables={tables}
+                questionMode={questionMode}
                 initialLimit={practicePreset}
                 creature={creature}
                 onSessionComplete={completeCreatureSession}
@@ -377,13 +415,14 @@ export default function Home() {
               <ChallengeMode
                 user={activeUser}
                 tables={tables}
+                questionMode={questionMode}
                 initialCount={challengePreset}
                 creature={creature}
                 onSessionComplete={completeCreatureSession}
                 onShowDashboard={() => setTab("dashboard")}
               />
             )}
-            {tab === "profile" && <CreatureProfile creature={creature} onSelectCosmetic={selectCosmetic} />}
+            {tab === "profile" && <CreatureProfile creature={creature} onSelectCosmetic={selectCosmetic} onUpdateCreature={updateCreature} />}
             {tab === "dashboard" && <DashboardView dashboard={dashboard} tables={tables} />}
           </>
         )}
@@ -395,7 +434,6 @@ export default function Home() {
 
 function CreatureHome({
   creature,
-  onUpdateCreature,
   onStartPractice,
   onStartChallenge,
   onShowProfile,
@@ -403,28 +441,12 @@ function CreatureHome({
   onStartQuest
 }: {
   creature: Creature | null;
-  onUpdateCreature: (creatureType: string, creatureName: string) => Promise<void>;
   onStartPractice: (limit: number) => void;
   onStartChallenge: (limit: number) => void;
   onShowProfile: () => void;
   quests: TrainingQuest[];
   onStartQuest: (quest: TrainingQuest) => void;
 }) {
-  const [creatureType, setCreatureType] = useState(creature?.creature_type || "Blob");
-  const [creatureName, setCreatureName] = useState(creature?.creature_name || "");
-  const [message, setMessage] = useState("");
-
-  useEffect(() => {
-    setCreatureType(creature?.creature_type || "Blob");
-    setCreatureName(creature?.creature_name || "");
-  }, [creature]);
-
-  async function saveCreature(event: FormEvent) {
-    event.preventDefault();
-    await onUpdateCreature(creatureType, creatureName);
-    setMessage(`${creatureName.trim()} is ready for training.`);
-  }
-
   if (!creature) return <section className="panel">Loading companion...</section>;
 
   return (
@@ -443,6 +465,11 @@ function CreatureHome({
             <span style={{ width: `${Math.round(creature.xp_progress * 100)}%` }} />
           </div>
           <strong>{creature.xp} XP · {creature.xp_to_next_level} XP to next level</strong>
+          {creature.next_stage && (
+            <p className="creatureStatus">
+              Next stage: {creature.next_stage} in {creature.xp_to_next_stage} XP.
+            </p>
+          )}
           <div className="energyBar" aria-label={`Energy ${creature.energy} percent`}>
             <span style={{ width: `${creature.energy}%` }} />
           </div>
@@ -494,25 +521,6 @@ function CreatureHome({
         </div>
       </section>
 
-      <form className="panel creatureSetup" onSubmit={saveCreature}>
-        <h2>Companion setup</h2>
-        <label>
-          Creature
-          <select value={creatureType} onChange={(event) => setCreatureType(event.target.value)}>
-            {CREATURE_TYPES.map((type) => (
-              <option key={type} value={type}>
-                {type}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Name
-          <input value={creatureName} onChange={(event) => setCreatureName(event.target.value)} placeholder="Creature name" />
-        </label>
-        <button type="submit">Save companion</button>
-        {message && <p className="feedback">{message}</p>}
-      </form>
     </section>
   );
 }
@@ -527,8 +535,109 @@ function CreatureAvatar({ type, cosmetic = "starter-star" }: { type: string; cos
   );
 }
 
-function CreatureProfile({ creature, onSelectCosmetic }: { creature: Creature | null; onSelectCosmetic: (key: string) => Promise<void> }) {
+function AdminPanel({ adminUser, users, onRefresh }: { adminUser: User; users: User[]; onRefresh: () => Promise<void> }) {
+  const [newName, setNewName] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [newAdmin, setNewAdmin] = useState(false);
   const [message, setMessage] = useState("");
+
+  async function createUser(event: FormEvent) {
+    event.preventDefault();
+    if (!newName.trim()) return;
+    await api<User>(`/admin/${adminUser.id}/users`, {
+      method: "POST",
+      body: JSON.stringify({ name: newName, password: newPassword || null, is_admin: newAdmin }),
+    });
+    setNewName("");
+    setNewPassword("");
+    setNewAdmin(false);
+    setMessage("Profile created.");
+    await onRefresh();
+  }
+
+  return (
+    <section className="adminPanel">
+      <h2>Admin</h2>
+      <form className="adminCreate" onSubmit={createUser}>
+        <input value={newName} onChange={(event) => setNewName(event.target.value)} placeholder="Profile name" />
+        <input value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="New passcode" type="password" />
+        <label className="toggleRow">
+          <input type="checkbox" checked={newAdmin} onChange={(event) => setNewAdmin(event.target.checked)} />
+          Admin
+        </label>
+        <button type="submit">Create</button>
+      </form>
+      <div className="adminUserList">
+        {users.map((user) => (
+          <AdminUserRow key={user.id} adminUser={adminUser} user={user} onRefresh={onRefresh} />
+        ))}
+      </div>
+      {message && <p className="feedback">{message}</p>}
+    </section>
+  );
+}
+
+function AdminUserRow({ adminUser, user, onRefresh }: { adminUser: User; user: User; onRefresh: () => Promise<void> }) {
+  const [name, setName] = useState(user.name);
+  const [password, setPassword] = useState("");
+  const [isAdmin, setIsAdmin] = useState(user.is_admin);
+
+  useEffect(() => {
+    setName(user.name);
+    setIsAdmin(user.is_admin);
+  }, [user]);
+
+  async function save() {
+    await api<User>(`/admin/${adminUser.id}/users/${user.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name, is_admin: isAdmin, password: password || undefined }),
+    });
+    setPassword("");
+    await onRefresh();
+  }
+
+  async function resetProgress() {
+    await api(`/admin/${adminUser.id}/users/${user.id}/reset-progress`, { method: "POST" });
+    await onRefresh();
+  }
+
+  async function deleteUser() {
+    await api(`/admin/${adminUser.id}/users/${user.id}`, { method: "DELETE" });
+    await onRefresh();
+  }
+
+  return (
+    <div className="adminUserRow">
+      <input value={name} onChange={(event) => setName(event.target.value)} aria-label={`Rename ${user.name}`} />
+      <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder={user.password_set ? "Reset passcode" : "Set passcode"} type="password" />
+      <label className="toggleRow">
+        <input type="checkbox" checked={isAdmin} onChange={(event) => setIsAdmin(event.target.checked)} />
+        Admin
+      </label>
+      <button type="button" onClick={save}>Save</button>
+      <button type="button" className="secondaryButton" onClick={resetProgress}>Reset progress</button>
+      <button type="button" className="dangerButton" onClick={deleteUser} disabled={user.id === adminUser.id}>Delete</button>
+    </div>
+  );
+}
+
+function CreatureProfile({
+  creature,
+  onSelectCosmetic,
+  onUpdateCreature,
+}: {
+  creature: Creature | null;
+  onSelectCosmetic: (key: string) => Promise<void>;
+  onUpdateCreature: (creatureType: string, creatureName: string) => Promise<void>;
+}) {
+  const [message, setMessage] = useState("");
+  const [creatureType, setCreatureType] = useState(creature?.creature_type || "Blob");
+  const [creatureName, setCreatureName] = useState(creature?.creature_name || "");
+
+  useEffect(() => {
+    setCreatureType(creature?.creature_type || "Blob");
+    setCreatureName(creature?.creature_name || "");
+  }, [creature]);
 
   if (!creature) return <section className="panel">Loading creature profile...</section>;
 
@@ -536,6 +645,12 @@ function CreatureProfile({ creature, onSelectCosmetic }: { creature: Creature | 
     await onSelectCosmetic(key);
     const selected = creature?.unlocked_cosmetics.find((item) => item.key === key);
     setMessage(`${selected?.name || "Cosmetic"} selected.`);
+  }
+
+  async function saveCreature(event: FormEvent) {
+    event.preventDefault();
+    await onUpdateCreature(creatureType, creatureName);
+    setMessage(`${creatureName.trim()} is ready for training.`);
   }
 
   return (
@@ -556,9 +671,33 @@ function CreatureProfile({ creature, onSelectCosmetic }: { creature: Creature | 
           <strong>
             {creature.xp} XP · {creature.xp_to_next_level} XP to Level {creature.level + 1}
           </strong>
+          {creature.next_stage && (
+            <p className="creatureStatus">
+              Next evolution: {creature.next_stage} at Level {creature.next_stage_level} · {creature.xp_to_next_stage} XP to go.
+            </p>
+          )}
           <p className="creatureStatus">The creature grows stronger as your maths brain grows stronger.</p>
         </div>
       </div>
+
+      <form className="panel creatureSetup" onSubmit={saveCreature}>
+        <h2>Companion setup</h2>
+        <label>
+          Creature
+          <select value={creatureType} onChange={(event) => setCreatureType(event.target.value)}>
+            {CREATURE_TYPES.map((type) => (
+              <option key={type} value={type}>
+                {type}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Name
+          <input value={creatureName} onChange={(event) => setCreatureName(event.target.value)} placeholder="Creature name" />
+        </label>
+        <button type="submit">Save companion</button>
+      </form>
 
       <div className="metricGrid">
         <Metric label="Sessions" value={`${creature.total_sessions_completed}`} />
@@ -595,6 +734,7 @@ function CreatureProfile({ creature, onSelectCosmetic }: { creature: Creature | 
 function PracticeMode({
   user,
   tables,
+  questionMode,
   initialLimit,
   creature,
   onSessionComplete,
@@ -602,6 +742,7 @@ function PracticeMode({
 }: {
   user: User;
   tables: number[];
+  questionMode: QuestionMode;
   initialLimit: number;
   creature: Creature | null;
   onSessionComplete: (payload: CreatureSessionPayload) => Promise<Creature | null>;
@@ -628,7 +769,7 @@ function PracticeMode({
     if (tables.length === 0) return;
     const next = await api<Question>("/practice/question", {
       method: "POST",
-      body: JSON.stringify({ user_id: user.id, tables })
+      body: JSON.stringify({ user_id: user.id, tables, question_mode: questionMode })
     });
     setQuestion(next);
     setAnswerValue(inputRef, "");
@@ -637,7 +778,7 @@ function PracticeMode({
     startedAtRef.current = Date.now();
     submittingRef.current = false;
     focusAnswer(inputRef);
-  }, [tables, user.id]);
+  }, [tables, questionMode, user.id]);
 
   useEffect(() => {
     setQuestionLimit(initialLimit);
@@ -1035,6 +1176,7 @@ function QuestMode({
 function ChallengeMode({
   user,
   tables,
+  questionMode,
   initialCount,
   creature,
   onSessionComplete,
@@ -1042,6 +1184,7 @@ function ChallengeMode({
 }: {
   user: User;
   tables: number[];
+  questionMode: QuestionMode;
   initialCount: number;
   creature: Creature | null;
   onSessionComplete: (payload: CreatureSessionPayload) => Promise<Creature | null>;
@@ -1064,7 +1207,7 @@ function ChallengeMode({
   async function start() {
     const data = await api<{ questions: Question[] }>("/challenge/start", {
       method: "POST",
-      body: JSON.stringify({ user_id: user.id, tables, question_count: count })
+      body: JSON.stringify({ user_id: user.id, tables, question_count: count, question_mode: questionMode })
     });
     setQuestions(data.questions);
     setIndex(0);
@@ -1368,6 +1511,20 @@ function ParentStats({ dashboard }: { dashboard: Dashboard }) {
             </li>
           ))}
         </ul>
+      )}
+      <h3>Progress over time</h3>
+      {dashboard.progress_over_time.length === 0 ? (
+        <p className="quiet">No progress history yet.</p>
+      ) : (
+        <div className="progressGrid">
+          {dashboard.progress_over_time.slice(-14).map((item) => (
+            <div key={item.date} className="progressDay">
+              <strong>{item.date.slice(5)}</strong>
+              <span>{item.accuracy === null ? "-" : `${Math.round(item.accuracy * 100)}%`}</span>
+              <small>{item.attempts} answers · {item.average_time_ms ? formatMs(item.average_time_ms) : "no timing"}</small>
+            </div>
+          ))}
+        </div>
       )}
     </section>
   );
