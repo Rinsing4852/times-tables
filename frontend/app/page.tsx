@@ -153,7 +153,8 @@ function focusAnswer(inputRef: RefObject<HTMLInputElement | null>) {
   requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }));
 }
 
-function pressAnswerKey(inputRef: RefObject<HTMLInputElement | null>, key: string, submitAnswer: () => void) {
+function pressAnswerKey(inputRef: RefObject<HTMLInputElement | null>, key: string, submitAnswer: () => void, disabled = false) {
+  if (disabled) return;
   const current = readAnswer(inputRef);
   if (key === "backspace") {
     setAnswerValue(inputRef, current.slice(0, -1));
@@ -189,6 +190,7 @@ export default function Home() {
   const [activeQuest, setActiveQuest] = useState<QuestStart | null>(null);
   const [appVersion, setAppVersion] = useState("");
   const [adminUsers, setAdminUsers] = useState<User[]>([]);
+  const focusMode = tab === "practice" || tab === "quest" || tab === "challenge";
 
   async function loadUsers() {
     const data = await api<User[]>("/users");
@@ -333,8 +335,8 @@ export default function Home() {
   }
 
   return (
-    <main className="shell">
-      <header className="topbar">
+    <main className={`shell ${focusMode ? "focusShell" : ""}`}>
+      {!focusMode && <header className="topbar">
         <div>
           <p className="eyebrow">Local practice engine</p>
           <h1>Recall Forge</h1>
@@ -366,17 +368,17 @@ export default function Home() {
             />
           )}
         </details>
-      </header>
+      </header>}
 
       <section className="workspace">
-        <nav className="tabs" aria-label="Modes">
+        {!focusMode && <nav className="tabs" aria-label="Modes">
           {(["home", "practice", "challenge", "profile", "dashboard"] as const).map((item) => (
             <button key={item} className={tab === item ? "active" : ""} onClick={() => setTab(item)} type="button">
               {item[0].toUpperCase() + item.slice(1)}
             </button>
           ))}
-        </nav>
-        <label className="modeSelect">
+        </nav>}
+        {!focusMode && <label className="modeSelect">
           Mode
           <select value={tab} onChange={(event) => setTab(event.target.value as Mode)}>
             <option value="home">Home</option>
@@ -385,17 +387,17 @@ export default function Home() {
             <option value="profile">Profile</option>
             <option value="dashboard">Dashboard</option>
           </select>
-        </label>
+        </label>}
 
         {!activeUser ? (
           <div className="emptyState">Open settings to create a profile.</div>
         ) : (
           <>
-            <details className="panel collapsiblePanel">
+            {!focusMode && <details className="panel collapsiblePanel">
               <summary>Tables: {tables.join(", ")}</summary>
               <TableSelector selected={tables} onChange={setTables} />
-            </details>
-            <div className="panel compactPanel">
+            </details>}
+            {!focusMode && <div className="panel compactPanel">
               <span className="fieldLabel">Question type</span>
               <div className="segmented modeSegment" aria-label="Question type">
                 {([
@@ -408,7 +410,7 @@ export default function Home() {
                   </button>
                 ))}
               </div>
-            </div>
+            </div>}
 
             {tab === "home" && (
               <CreatureHome
@@ -805,6 +807,7 @@ function PracticeMode({
   const [practicedDivision, setPracticedDivision] = useState(false);
   const [sessionDone, setSessionDone] = useState(false);
   const [summary, setSummary] = useState<PracticeSummary | null>(null);
+  const [isChecking, setIsChecking] = useState(false);
   const startedAtRef = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const submittingRef = useRef(false);
@@ -819,6 +822,7 @@ function PracticeMode({
     setAnswerValue(inputRef, "");
     setAttemptNumber(1);
     setFeedback("");
+    setIsChecking(false);
     startedAtRef.current = Date.now();
     submittingRef.current = false;
     focusAnswer(inputRef);
@@ -838,6 +842,7 @@ function PracticeMode({
     setPracticedDivision(false);
     setSessionDone(false);
     setSummary(null);
+    setIsChecking(false);
     loadQuestion().catch(() => setFeedback("Could not load a question."));
   }, [loadQuestion, questionLimit]);
 
@@ -901,6 +906,7 @@ function PracticeMode({
     setSessionDone(false);
     setSummary(null);
     setFeedback("");
+    setIsChecking(false);
     setAnswerValue(inputRef, "");
     setAttemptNumber(1);
     setTimeout(loadQuestion, 0);
@@ -910,6 +916,7 @@ function PracticeMode({
     const submittedAnswer = readAnswer(inputRef);
     if (!question || submittedAnswer === "" || submittingRef.current) return;
     submittingRef.current = true;
+    setIsChecking(true);
     const elapsed = Date.now() - startedAtRef.current;
     try {
       const result = await api<{ correct: boolean; correct_answer: number; learning_event: LearningEvent }>("/practice/answer", {
@@ -925,22 +932,24 @@ function PracticeMode({
       });
       if (result.correct) {
         setFeedback(attemptNumber === 1 ? "Correct." : "Got it on the second try.");
-        finishQuestion(650, true, result.learning_event).catch(() => setFeedback("Practice was recorded, but energy could not update."));
+        finishQuestion(280, true, result.learning_event).catch(() => setFeedback("Practice was recorded, but energy could not update."));
         return;
       }
       if (attemptNumber === 1) {
         setAttemptNumber(2);
         setAnswerValue(inputRef, "");
         setFeedback("Try once more.");
+        setIsChecking(false);
         startedAtRef.current = Date.now();
         submittingRef.current = false;
         focusAnswer(inputRef);
         return;
       }
       setFeedback(`Answer: ${result.correct_answer}`);
-      finishQuestion(1100, false, result.learning_event).catch(() => setFeedback("Practice was recorded, but energy could not update."));
+      finishQuestion(850, false, result.learning_event).catch(() => setFeedback("Practice was recorded, but energy could not update."));
     } catch {
       setFeedback("Could not check that answer.");
+      setIsChecking(false);
       submittingRef.current = false;
     }
   }
@@ -952,31 +961,13 @@ function PracticeMode({
 
   function pressNumberPad(key: string) {
     if (sessionDone) return;
-    pressAnswerKey(inputRef, key, submitAnswer);
+    pressAnswerKey(inputRef, key, submitAnswer, isChecking);
   }
 
   return (
     <section className="practiceSurface practiceSession">
-        <div className="practiceControls">
-        <div className="segmented" aria-label="Practice length">
-          {[5, 10, 15, 20].map((limit) => (
-            <button
-              key={limit}
-              className={questionLimit === limit ? "active" : ""}
-              onClick={() => {
-                setQuestionLimit(limit);
-                setCompletedCount(0);
-                setSessionDone(false);
-              }}
-              type="button"
-            >
-              {limit}
-            </button>
-          ))}
-        </div>
-        <strong>
-          {completedCount} / {questionLimit}
-        </strong>
+      <div className="progressLine">
+        {completedCount + 1 <= questionLimit ? completedCount + 1 : questionLimit} of {questionLimit}
       </div>
 
       {sessionDone ? (
@@ -1015,6 +1006,8 @@ function PracticeMode({
               autoComplete="off"
               maxLength={4}
               aria-label="Answer"
+              aria-busy={isChecking}
+              readOnly={isChecking}
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
                   event.preventDefault();
@@ -1023,8 +1016,8 @@ function PracticeMode({
               }}
             />
           </form>
-          <NumberPad onPress={pressNumberPad} />
-          <div className={`feedback ${feedback.startsWith("Answer") ? "wrong" : ""}`}>{feedback}</div>
+          <NumberPad onPress={pressNumberPad} disabled={isChecking} />
+          <div className={`feedback ${feedback.startsWith("Answer") ? "wrong" : ""}`}>{isChecking && !feedback ? "Checking..." : feedback}</div>
         </>
       )}
     </section>
@@ -1062,6 +1055,7 @@ function QuestMode({
   const [factsPractised, setFactsPractised] = useState<number[]>([]);
   const [result, setResult] = useState<QuestCompleteResult | null>(null);
   const [sessionReward, setSessionReward] = useState<Creature | null>(null);
+  const [isChecking, setIsChecking] = useState(false);
   const startedAtRef = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const submittingRef = useRef(false);
@@ -1075,6 +1069,7 @@ function QuestMode({
     setFeedback("");
     setResult(null);
     setSessionReward(null);
+    setIsChecking(false);
     startedAtRef.current = Date.now();
     submittingRef.current = false;
     focusAnswer(inputRef);
@@ -1125,6 +1120,7 @@ function QuestMode({
     setAnswerValue(inputRef, "");
     setAttemptNumber(1);
     setFeedback("");
+    setIsChecking(false);
     startedAtRef.current = Date.now();
     submittingRef.current = false;
     focusAnswer(inputRef);
@@ -1134,6 +1130,7 @@ function QuestMode({
     const submittedAnswer = readAnswer(inputRef);
     if (!current || submittedAnswer === "" || submittingRef.current) return;
     submittingRef.current = true;
+    setIsChecking(true);
     const elapsed = Date.now() - startedAtRef.current;
     try {
       const response = await api<{ correct: boolean; correct_answer: number; learning_event: LearningEvent }>("/practice/answer", {
@@ -1150,22 +1147,24 @@ function QuestMode({
 
       if (response.correct) {
         setFeedback(attemptNumber === 1 ? "Correct." : "Fixed on the second try.");
-        setTimeout(() => finishQuestQuestion(true, response.learning_event), 550);
+        setTimeout(() => finishQuestQuestion(true, response.learning_event), 280);
         return;
       }
       if (attemptNumber === 1) {
         setAttemptNumber(2);
         setAnswerValue(inputRef, "");
         setFeedback("Try once more.");
+        setIsChecking(false);
         startedAtRef.current = Date.now();
         submittingRef.current = false;
         focusAnswer(inputRef);
         return;
       }
       setFeedback(`Answer: ${response.correct_answer}`);
-      setTimeout(() => finishQuestQuestion(false, response.learning_event), 850);
+      setTimeout(() => finishQuestQuestion(false, response.learning_event), 650);
     } catch {
       setFeedback("Could not check that answer.");
+      setIsChecking(false);
       submittingRef.current = false;
     }
   }
@@ -1200,10 +1199,8 @@ function QuestMode({
   return (
     <section className="practiceSurface practiceSession">
       <div className="practiceControls">
-        <strong>{questStart.quest.title}</strong>
         <strong>{index + 1} / {questStart.questions.length}</strong>
       </div>
-      <p className="quiet">{questStart.quest.description}</p>
       <div className="questionText">{current?.prompt || "Loading..."}</div>
       <form className="answerRow" onSubmit={submit}>
         <input
@@ -1212,6 +1209,8 @@ function QuestMode({
           pattern="[0-9]*"
           autoComplete="off"
           maxLength={4}
+          aria-busy={isChecking}
+          readOnly={isChecking}
           onKeyDown={(event) => {
             if (event.key === "Enter") {
               event.preventDefault();
@@ -1221,8 +1220,8 @@ function QuestMode({
           aria-label="Answer"
         />
       </form>
-      <NumberPad onPress={(key) => pressAnswerKey(inputRef, key, submitAnswer)} />
-      <div className={`feedback ${feedback.startsWith("Answer") ? "wrong" : ""}`}>{feedback}</div>
+      <NumberPad onPress={(key) => pressAnswerKey(inputRef, key, submitAnswer, isChecking)} disabled={isChecking} />
+      <div className={`feedback ${feedback.startsWith("Answer") ? "wrong" : ""}`}>{isChecking && !feedback ? "Checking..." : feedback}</div>
     </section>
   );
 }
@@ -1252,6 +1251,7 @@ function ChallengeMode({
   const [result, setResult] = useState<ChallengeResult | null>(null);
   const [creatureReward, setCreatureReward] = useState<Creature | null>(null);
   const [feedback, setFeedback] = useState("");
+  const [isSubmittingAnswer, setIsSubmittingAnswer] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const submittingRef = useRef(false);
 
@@ -1274,6 +1274,7 @@ function ChallengeMode({
       setAnswerValue(inputRef, "");
       setResult(null);
       setCreatureReward(null);
+      setIsSubmittingAnswer(false);
       startedAtRef.current = Date.now();
       submittingRef.current = false;
       focusAnswer(inputRef);
@@ -1287,6 +1288,7 @@ function ChallengeMode({
     const submittedAnswer = readAnswer(inputRef);
     if (!current || submittedAnswer === "" || submittingRef.current) return;
     submittingRef.current = true;
+    setIsSubmittingAnswer(true);
     const nextAnswers = [
       ...answers,
       { fact_id: current.fact_id, question_type: current.question_type, answer: submittedAnswer, response_time_ms: Date.now() - startedAtRef.current }
@@ -1296,6 +1298,7 @@ function ChallengeMode({
       setAnswers(nextAnswers);
       setIndex(index + 1);
       startedAtRef.current = Date.now();
+      setIsSubmittingAnswer(false);
       submittingRef.current = false;
       focusAnswer(inputRef);
       return;
@@ -1325,6 +1328,7 @@ function ChallengeMode({
     } catch {
       setAnswerValue(inputRef, submittedAnswer);
       setFeedback("Could not save the challenge. Your answer is still here.");
+      setIsSubmittingAnswer(false);
       submittingRef.current = false;
     }
   }
@@ -1335,7 +1339,7 @@ function ChallengeMode({
   }
 
   function pressNumberPad(key: string) {
-    pressAnswerKey(inputRef, key, submitAnswer);
+    pressAnswerKey(inputRef, key, submitAnswer, isSubmittingAnswer);
   }
 
   const current = questions[index];
@@ -1383,6 +1387,8 @@ function ChallengeMode({
               autoComplete="off"
               maxLength={4}
               aria-label="Answer"
+              aria-busy={isSubmittingAnswer}
+              readOnly={isSubmittingAnswer}
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
                   event.preventDefault();
@@ -1391,8 +1397,8 @@ function ChallengeMode({
               }}
             />
           </form>
-          <NumberPad onPress={pressNumberPad} />
-          {feedback && <div className="feedback wrong">{feedback}</div>}
+          <NumberPad onPress={pressNumberPad} disabled={isSubmittingAnswer} />
+          <div className={`feedback ${feedback ? "wrong" : ""}`}>{isSubmittingAnswer && !feedback ? "Accepted..." : feedback}</div>
         </div>
       )}
       {feedback && !current && <p className="error">{feedback}</p>}
@@ -1495,15 +1501,15 @@ function ChallengeResults({
   );
 }
 
-function NumberPad({ onPress }: { onPress: (key: string) => void }) {
+function NumberPad({ onPress, disabled = false }: { onPress: (key: string) => void; disabled?: boolean }) {
   return (
     <div className="numberPad" aria-label="Number pad">
       {["1", "2", "3", "4", "5", "6", "7", "8", "9", "clear", "0", "backspace"].map((key) => (
-        <button key={key} type="button" className={key.length > 1 ? "utility" : ""} onClick={() => onPress(key)}>
+        <button key={key} type="button" className={key.length > 1 ? "utility" : ""} onClick={() => onPress(key)} disabled={disabled}>
           {key === "backspace" ? "⌫" : key === "clear" ? "C" : key}
         </button>
       ))}
-      <button type="button" className="enter" onClick={() => onPress("enter")}>
+      <button type="button" className="enter" onClick={() => onPress("enter")} disabled={disabled}>
         Enter
       </button>
     </div>
