@@ -135,6 +135,13 @@ type PracticeSummary = {
 const DEFAULT_TABLES = [2, 3, 4, 5];
 const ALL_TABLES = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 const CREATURE_TYPES = ["Blob", "Dragon", "Robot", "Forest Sprite", "Rock Golem", "Space Beast"];
+const STAGE_ASSETS: Record<string, string> = {
+  Egg: "/assets/creatures/stage-egg.svg",
+  Hatchling: "/assets/creatures/stage-hatchling.svg",
+  Youngling: "/assets/creatures/stage-youngling.svg",
+  Explorer: "/assets/creatures/stage-explorer.svg",
+  Champion: "/assets/creatures/stage-champion.svg"
+};
 
 function formatMs(ms: number) {
   if (ms < 1000) return `${ms} ms`;
@@ -343,6 +350,7 @@ export default function Home() {
         </div>
         <details className="settingsMenu">
           <summary>Settings</summary>
+          <div className="settingsPanel">
           <form className="profileForm" onSubmit={createProfile}>
             <select
               value={activeUser?.id || ""}
@@ -360,6 +368,16 @@ export default function Home() {
             <button type="submit">Add</button>
             {appVersion && <p className="versionLine">Recall Forge v{appVersion}</p>}
           </form>
+          {activeUser && (
+            <div className="settingsActions" aria-label="Settings pages">
+              <button type="button" className={tab === "profile" ? "active" : ""} onClick={() => setTab("profile")}>
+                Profile
+              </button>
+              <button type="button" className={tab === "dashboard" ? "active" : ""} onClick={() => setTab("dashboard")}>
+                Dashboard
+              </button>
+            </div>
+          )}
           {activeUser?.is_admin && (
             <AdminPanel
               adminUser={activeUser}
@@ -367,12 +385,13 @@ export default function Home() {
               onRefresh={refreshActiveWorkspace}
             />
           )}
+          </div>
         </details>
       </header>}
 
       <section className="workspace">
         {!focusMode && <nav className="tabs" aria-label="Modes">
-          {(["home", "practice", "challenge", "profile", "dashboard"] as const).map((item) => (
+          {(["home", "practice", "challenge"] as const).map((item) => (
             <button key={item} className={tab === item ? "active" : ""} onClick={() => setTab(item)} type="button">
               {item[0].toUpperCase() + item.slice(1)}
             </button>
@@ -380,12 +399,10 @@ export default function Home() {
         </nav>}
         {!focusMode && <label className="modeSelect">
           Mode
-          <select value={tab} onChange={(event) => setTab(event.target.value as Mode)}>
+          <select value={tab === "profile" || tab === "dashboard" ? "home" : tab} onChange={(event) => setTab(event.target.value as Mode)}>
             <option value="home">Home</option>
             <option value="practice">Practice</option>
             <option value="challenge">Challenge</option>
-            <option value="profile">Profile</option>
-            <option value="dashboard">Dashboard</option>
           </select>
         </label>}
 
@@ -417,7 +434,6 @@ export default function Home() {
                 creature={creature}
                 onStartPractice={startPracticeSession}
                 onStartChallenge={startChallengeRound}
-                onShowProfile={() => setTab("profile")}
                 quests={quests}
                 onStartQuest={startQuest}
               />
@@ -430,6 +446,7 @@ export default function Home() {
                 initialLimit={practicePreset}
                 creature={creature}
                 onSessionComplete={completeCreatureSession}
+                onBackHome={() => setTab("home")}
                 onShowDashboard={() => setTab("dashboard")}
               />
             )}
@@ -451,6 +468,7 @@ export default function Home() {
                 initialCount={challengePreset}
                 creature={creature}
                 onSessionComplete={completeCreatureSession}
+                onBackHome={() => setTab("home")}
                 onShowDashboard={() => setTab("dashboard")}
               />
             )}
@@ -468,14 +486,12 @@ function CreatureHome({
   creature,
   onStartPractice,
   onStartChallenge,
-  onShowProfile,
   quests,
   onStartQuest
 }: {
   creature: Creature | null;
   onStartPractice: (limit: number) => void;
   onStartChallenge: (limit: number) => void;
-  onShowProfile: () => void;
   quests: TrainingQuest[];
   onStartQuest: (quest: TrainingQuest) => void;
 }) {
@@ -485,7 +501,7 @@ function CreatureHome({
     <section className="creatureHome">
       <div className="creatureCard">
         <div className="creatureAvatarWrap">
-          <CreatureAvatar type={creature.creature_type} cosmetic={creature.selected_cosmetic} />
+          <CreatureAvatar type={creature.creature_type} stage={creature.stage} cosmetic={creature.selected_cosmetic} />
         </div>
         <div className="creatureInfo">
           <p className="eyebrow">{creature.creature_type}</p>
@@ -527,10 +543,6 @@ function CreatureHome({
           <span>20 questions</span>
         </button>
       </div>
-      <button className="secondaryButton profileButton" type="button" onClick={onShowProfile}>
-        View creature profile
-      </button>
-
       <section className="panel questSection">
         <div className="sectionHeader">
           <h2>Training Quests</h2>
@@ -557,12 +569,11 @@ function CreatureHome({
   );
 }
 
-function CreatureAvatar({ type, cosmetic = "starter-star" }: { type: string; cosmetic?: string }) {
+function CreatureAvatar({ type, stage, cosmetic = "starter-star" }: { type: string; stage: string; cosmetic?: string }) {
+  const stageAsset = STAGE_ASSETS[stage] || STAGE_ASSETS.Egg;
   return (
-    <div className={`creatureAvatar ${type.toLowerCase().replaceAll(" ", "-")} ${cosmetic}`}>
-      <span className="eye left" />
-      <span className="eye right" />
-      <span className="mark" />
+    <div className={`creatureAvatar ${type.toLowerCase().replaceAll(" ", "-")} stage-${stage.toLowerCase()} ${cosmetic}`} role="img" aria-label={`${type} ${stage} stage`}>
+      <span className="creatureStageAsset" style={{ backgroundImage: `url(${stageAsset})` }} />
     </div>
   );
 }
@@ -589,7 +600,13 @@ function AdminPanel({ adminUser, users, onRefresh }: { adminUser: User; users: U
 
   return (
     <section className="adminPanel">
-      <h2>Admin</h2>
+      <div className="adminHeader">
+        <div>
+          <h2>User management</h2>
+          <p className="quiet">Create profiles, reset passcodes, and manage local access.</p>
+        </div>
+        <span>{users.length} profiles</span>
+      </div>
       <form className="adminCreate" onSubmit={createUser}>
         <input value={newName} onChange={(event) => setNewName(event.target.value)} placeholder="Profile name" />
         <input value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="New passcode" type="password" />
@@ -642,15 +659,27 @@ function AdminUserRow({ adminUser, user, onRefresh }: { adminUser: User; user: U
 
   return (
     <div className="adminUserRow">
-      <input value={name} onChange={(event) => setName(event.target.value)} aria-label={`Rename ${user.name}`} />
-      <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder={user.password_set ? "Reset passcode" : "Set passcode"} type="password" />
-      <label className="toggleRow">
+      <div className="adminUserMeta">
+        <strong>{user.name}</strong>
+        <span>{user.is_admin ? "Admin" : "Learner"} · {user.password_set ? "Passcode set" : "No passcode"}</span>
+      </div>
+      <label>
+        Name
+        <input value={name} onChange={(event) => setName(event.target.value)} aria-label={`Rename ${user.name}`} />
+      </label>
+      <label>
+        Passcode
+        <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder={user.password_set ? "Reset passcode" : "Set passcode"} type="password" />
+      </label>
+      <label className="toggleRow adminToggle">
         <input type="checkbox" checked={isAdmin} onChange={(event) => setIsAdmin(event.target.checked)} />
         Admin
       </label>
-      <button type="button" onClick={save}>Save</button>
-      <button type="button" className="secondaryButton" onClick={resetProgress}>Reset progress</button>
-      <button type="button" className="dangerButton" onClick={deleteUser} disabled={user.id === adminUser.id}>Delete</button>
+      <div className="adminRowActions">
+        <button type="button" onClick={save}>Save</button>
+        <button type="button" className="secondaryButton" onClick={resetProgress}>Reset progress</button>
+        <button type="button" className="dangerButton" onClick={deleteUser} disabled={user.id === adminUser.id}>Delete</button>
+      </div>
     </div>
   );
 }
@@ -696,7 +725,7 @@ function CreatureProfile({
     <section className="creatureProfile">
       <div className="creatureCard">
         <div className="creatureAvatarWrap">
-          <CreatureAvatar type={creature.creature_type} cosmetic={creature.selected_cosmetic} />
+          <CreatureAvatar type={creature.creature_type} stage={creature.stage} cosmetic={creature.selected_cosmetic} />
         </div>
         <div className="creatureInfo">
           <p className="eyebrow">{creature.creature_type}</p>
@@ -784,6 +813,7 @@ function PracticeMode({
   initialLimit,
   creature,
   onSessionComplete,
+  onBackHome,
   onShowDashboard
 }: {
   user: User;
@@ -792,6 +822,7 @@ function PracticeMode({
   initialLimit: number;
   creature: Creature | null;
   onSessionComplete: (payload: CreatureSessionPayload) => Promise<Creature | null>;
+  onBackHome: () => void;
   onShowDashboard: () => void;
 }) {
   const [question, setQuestion] = useState<Question | null>(null);
@@ -966,6 +997,9 @@ function PracticeMode({
 
   return (
     <section className="practiceSurface practiceSession">
+      <button type="button" className="focusBackButton" onClick={onBackHome} aria-label="Back to home">
+        Home
+      </button>
       <div className="progressLine">
         {completedCount + 1 <= questionLimit ? completedCount + 1 : questionLimit} of {questionLimit}
       </div>
@@ -1198,6 +1232,9 @@ function QuestMode({
 
   return (
     <section className="practiceSurface practiceSession">
+      <button type="button" className="focusBackButton" onClick={onBackHome} aria-label="Back to home">
+        Home
+      </button>
       <div className="practiceControls">
         <strong>{index + 1} / {questStart.questions.length}</strong>
       </div>
@@ -1233,6 +1270,7 @@ function ChallengeMode({
   initialCount,
   creature,
   onSessionComplete,
+  onBackHome,
   onShowDashboard
 }: {
   user: User;
@@ -1241,6 +1279,7 @@ function ChallengeMode({
   initialCount: number;
   creature: Creature | null;
   onSessionComplete: (payload: CreatureSessionPayload) => Promise<Creature | null>;
+  onBackHome: () => void;
   onShowDashboard: () => void;
 }) {
   const [count, setCount] = useState(initialCount);
@@ -1346,6 +1385,9 @@ function ChallengeMode({
 
   return (
     <section className="panel">
+      <button type="button" className="focusBackButton" onClick={onBackHome} aria-label="Back to home">
+        Home
+      </button>
       {questions.length === 0 && !result && (
         <div className="challengeSetup">
           <div className="segmented" aria-label="Challenge length">
@@ -1412,6 +1454,7 @@ function ChallengeMode({
           stageMessage={creatureReward?.stage_message || ""}
           newUnlocks={creatureReward?.new_unlocks || []}
           onRestart={start}
+          onBackHome={onBackHome}
           onShowDashboard={onShowDashboard}
         />
       )}
@@ -1428,6 +1471,7 @@ function ChallengeResults({
   stageMessage,
   newUnlocks,
   onRestart,
+  onBackHome,
   onShowDashboard
 }: {
   result: ChallengeResult;
@@ -1438,6 +1482,7 @@ function ChallengeResults({
   stageMessage: string;
   newUnlocks: Cosmetic[];
   onRestart: () => void;
+  onBackHome: () => void;
   onShowDashboard: () => void;
 }) {
   return (
@@ -1494,6 +1539,7 @@ function ChallengeResults({
         </div>
       )}
       <div className="actionRow">
+        <button type="button" className="secondaryButton" onClick={onBackHome}>Home</button>
         <button type="button" onClick={onRestart}>Run again</button>
         <button type="button" className="secondaryButton" onClick={onShowDashboard}>See dashboard</button>
       </div>

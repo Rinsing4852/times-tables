@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" role="img" aria-label="Explorer stage companion">
+  <defs>
+    <linearGradient id="body" x1="46" x2="194" y1="28" y2="222" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#c1f4ff"/>
+      <stop offset=".65" stop-color="#5dbf75"/>
+      <stop offset="1" stop-color="#2d8c58"/>
+    </linearGradient>
+  </defs>
+  <path d="M52 128c0-59 27-96 68-96s68 37 68 96v25c0 42-29 69-68 69s-68-27-68-69z" fill="url(#body)" stroke="#18212f" stroke-width="8"/>
+  <path d="M72 70 35 34l1 64" fill="#f2d133" stroke="#18212f" stroke-width="7" stroke-linejoin="round"/>
+  <path d="m168 70 37-36-1 64" fill="#f2d133" stroke="#18212f" stroke-width="7" stroke-linejoin="round"/>
+  <path d="M72 49h96l-12 27H84z" fill="#2563eb" stroke="#18212f" stroke-width="7" stroke-linejoin="round"/>
+  <path d="M58 141 21 159M182 141l37 18" stroke="#18212f" stroke-width="10" stroke-linecap="round"/>
+  <circle cx="95" cy="113" r="9" fill="#18212f"/>
+  <circle cx="145" cy="113" r="9" fill="#18212f"/>
+  <path d="M105 153c12 10 18 10 30 0" fill="none" stroke="#18212f" stroke-width="7" stroke-linecap="round"/>
+  <path d="M90 216 70 232M150 216l20 16" stroke="#18212f" stroke-width="10" stroke-linecap="round"/>
+</svg>

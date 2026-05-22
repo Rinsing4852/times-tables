@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" role="img" aria-label="Egg stage companion">
+  <defs>
+    <linearGradient id="body" x1="70" x2="170" y1="38" y2="212" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fff7cf"/>
+      <stop offset="1" stop-color="#8fd7b0"/>
+    </linearGradient>
+  </defs>
+  <ellipse cx="120" cy="128" rx="68" ry="88" fill="url(#body)" stroke="#18212f" stroke-width="8"/>
+  <path d="M70 132c17-16 32-16 49 0 16 15 32 15 51 0" fill="none" stroke="#18212f" stroke-width="7" stroke-linecap="round"/>
+  <circle cx="96" cy="108" r="8" fill="#18212f"/>
+  <circle cx="144" cy="108" r="8" fill="#18212f"/>
+  <path d="M105 150c10 8 20 8 30 0" fill="none" stroke="#18212f" stroke-width="6" stroke-linecap="round"/>
+</svg>

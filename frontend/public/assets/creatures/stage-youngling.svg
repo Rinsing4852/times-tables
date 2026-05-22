@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" role="img" aria-label="Youngling stage companion">
+  <defs>
+    <linearGradient id="body" x1="52" x2="188" y1="32" y2="218" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#c8f6ff"/>
+      <stop offset=".7" stop-color="#67c47f"/>
+      <stop offset="1" stop-color="#41a15f"/>
+    </linearGradient>
+  </defs>
+  <path d="M60 129c0-52 24-88 60-88s60 36 60 88v27c0 36-26 60-60 60s-60-24-60-60z" fill="url(#body)" stroke="#18212f" stroke-width="8"/>
+  <path d="M74 75 42 42l2 58" fill="#f2d133" stroke="#18212f" stroke-width="7" stroke-linejoin="round"/>
+  <path d="m166 75 32-33-2 58" fill="#f2d133" stroke="#18212f" stroke-width="7" stroke-linejoin="round"/>
+  <path d="M64 145 31 165M176 145l33 20" stroke="#18212f" stroke-width="9" stroke-linecap="round"/>
+  <circle cx="96" cy="115" r="9" fill="#18212f"/>
+  <circle cx="144" cy="115" r="9" fill="#18212f"/>
+  <path d="M106 151c10 10 18 10 28 0" fill="none" stroke="#18212f" stroke-width="7" stroke-linecap="round"/>
+  <path d="M92 210 76 230M148 210l16 20" stroke="#18212f" stroke-width="9" stroke-linecap="round"/>
+</svg>
