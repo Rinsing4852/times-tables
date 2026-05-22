@@ -65,6 +65,60 @@ The data directory can also be overridden with `TIMES_TABLES_DATA_DIR`. On Unrai
 /mnt/user/appdata/times-tables/data
 ```
 
+### Private GitHub Repo
+
+You do not need to create a GitHub release to update Unraid. Unraid/Dockge can build from the latest `main` branch as long as the server can read the private repo.
+
+For a private repo, use one of these approaches:
+
+- Clone the repo onto Unraid with your GitHub credentials or a fine-grained token that has read access to this repo.
+- Or use GitHub remote build contexts in Dockge only if Dockge/Docker has credentials configured for the private repo.
+- Or keep the repo cloned locally on Unraid and use relative build contexts from inside the stack folder.
+
+If you previously could not find the repo at `/mnt/user/appdata/times-tables`, check where it actually lives:
+
+```bash
+find /mnt/user/appdata -maxdepth 4 -name .git -type d
+```
+
+In your earlier setup the repo was found at:
+
+```text
+/mnt/user/appdata/recallforge
+```
+
+Use that path for updates if it is still where the repo lives.
+
+### Update On Unraid
+
+From a terminal on Unraid, update the cloned repo:
+
+```bash
+cd /mnt/user/appdata/recallforge
+git pull
+```
+
+Then rebuild/recreate the stack. If using the terminal from the repo folder:
+
+```bash
+docker compose -f compose.dockge.yml up -d --build --force-recreate
+```
+
+If using Dockge:
+
+1. Open the Recall Forge stack.
+2. Pull/update the repo if Dockge does not do this automatically.
+3. Click update/redeploy/recreate so the images rebuild.
+4. Check the frontend logs and backend logs for startup errors.
+
+Your SQLite learning data should remain in:
+
+```text
+/mnt/user/appdata/times-tables/data/recall_forge.db
+```
+
+Do not delete the data folder unless you intentionally want to reset the app.
+
 The browser should use:
 
 ```text
@@ -78,6 +132,20 @@ http://times-tables-backend:8000
 ```
 
 This means port `8000` does not need to be exposed to your LAN.
+
+### Common Unraid Troubleshooting
+
+If `git pull` says `fatal: not a git repository`, you are in the wrong folder. Run the `find /mnt/user/appdata -maxdepth 4 -name .git -type d` command above, then `cd` to the parent folder of the `.git` directory.
+
+If Dockge cannot find `backend` or `frontend`, its stack folder is not the repo root. Either move/copy the repo contents into the Dockge stack folder, use relative contexts like `./backend`, or use GitHub remote build contexts.
+
+If the frontend starts but the app cannot load data, check that `BACKEND_INTERNAL_URL` is set to:
+
+```text
+http://times-tables-backend:8000
+```
+
+If the app resets after redeploy, check that the data mount points to the persistent Unraid appdata folder and not a temporary container path.
 
 ## Local Development
 

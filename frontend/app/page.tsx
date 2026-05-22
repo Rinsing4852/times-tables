@@ -995,9 +995,14 @@ function PracticeMode({
     pressAnswerKey(inputRef, key, submitAnswer, isChecking);
   }
 
+  function backHome() {
+    if (!sessionDone && !window.confirm("Leave this practice session and go home? Current session progress will not be completed.")) return;
+    onBackHome();
+  }
+
   return (
     <section className="practiceSurface practiceSession">
-      <button type="button" className="focusBackButton" onClick={onBackHome} aria-label="Back to home">
+      <button type="button" className="focusBackButton" onClick={backHome} aria-label="Back to home">
         Home
       </button>
       <div className="progressLine">
@@ -1208,6 +1213,11 @@ function QuestMode({
     submitAnswer();
   }
 
+  function backHome() {
+    if (!result && !window.confirm("Leave this training quest and go home? Quest progress will not be completed.")) return;
+    onBackHome();
+  }
+
   if (result) {
     return (
       <section className="practiceSurface">
@@ -1232,7 +1242,7 @@ function QuestMode({
 
   return (
     <section className="practiceSurface practiceSession">
-      <button type="button" className="focusBackButton" onClick={onBackHome} aria-label="Back to home">
+      <button type="button" className="focusBackButton" onClick={backHome} aria-label="Back to home">
         Home
       </button>
       <div className="practiceControls">
@@ -1381,11 +1391,16 @@ function ChallengeMode({
     pressAnswerKey(inputRef, key, submitAnswer, isSubmittingAnswer);
   }
 
+  function backHome() {
+    if (questions.length > 0 && !result && !window.confirm("Leave this challenge and go home? Current challenge answers will not be submitted.")) return;
+    onBackHome();
+  }
+
   const current = questions[index];
 
   return (
     <section className="panel">
-      <button type="button" className="focusBackButton" onClick={onBackHome} aria-label="Back to home">
+      <button type="button" className="focusBackButton" onClick={backHome} aria-label="Back to home">
         Home
       </button>
       {questions.length === 0 && !result && (
