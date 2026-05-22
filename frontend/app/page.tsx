@@ -681,8 +681,13 @@ function CreatureProfile({
 
   async function saveCreature(event: FormEvent) {
     event.preventDefault();
-    await onUpdateCreature(creatureType, creatureName);
-    setMessage(`${creatureName.trim()} is ready for training.`);
+    const trimmedName = creatureName.trim();
+    if (!trimmedName) {
+      setMessage("Choose a companion name first.");
+      return;
+    }
+    await onUpdateCreature(creatureType, trimmedName);
+    setMessage(`${trimmedName} is ready for training.`);
   }
 
   return (
@@ -726,7 +731,13 @@ function CreatureProfile({
         </label>
         <label>
           Name
-          <input value={creatureName} onChange={(event) => setCreatureName(event.target.value)} placeholder="Creature name" />
+          <input
+            value={creatureName}
+            onChange={(event) => setCreatureName(event.target.value)}
+            placeholder="Creature name"
+            maxLength={80}
+            required
+          />
         </label>
         <button type="submit">Save companion</button>
       </form>
@@ -750,6 +761,7 @@ function CreatureProfile({
               type="button"
               className={`cosmeticItem ${creature.selected_cosmetic === item.key ? "selected" : ""}`}
               onClick={() => chooseCosmetic(item.key)}
+              aria-pressed={creature.selected_cosmetic === item.key}
             >
               <strong>{item.name}</strong>
               <span>{item.kind}</span>
@@ -1531,6 +1543,7 @@ function DashboardView({ dashboard, tables }: { dashboard: Dashboard | null; tab
         <Metric label="Accuracy" value={selectedTotals.accuracy === null ? "-" : `${Math.round(selectedTotals.accuracy * 100)}%`} />
       </div>
       <div className="dashboardControls">
+        <span className="quiet">Showing selected tables: {selectedTables.join(", ")}</span>
         <label className="toggleRow">
           <input type="checkbox" checked={showFactLabels} onChange={(event) => setShowFactLabels(event.target.checked)} />
           Show facts in heat map boxes
