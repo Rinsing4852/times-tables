@@ -35,7 +35,11 @@ The SQLite database is stored in the Docker volume `times-tables_backend-data`.
 
 ## Unraid / Dockge
 
-For Unraid with Dockge, use `compose.dockge.yml` as the stack compose file. It is set up for LAN/Tailscale use:
+For Unraid with Dockge, use `compose.dockge.yml` as the stack compose file if the repo is cloned on the server.
+
+If you want Dockge to build directly from GitHub instead, use `compose.dockge.github.yml`. It is pinned to the `v0.4.1` GitHub release tag. For future releases, change both build context tags in that file, for example from `v0.4.1` to `v0.4.2`.
+
+Both Dockge files are set up for LAN/Tailscale use:
 
 - only the frontend port is exposed
 - the backend stays on the private Docker bridge network
