@@ -30,6 +30,13 @@ test("practice uses a setup screen before the focused answer surface", () => {
   assert.match(pageSource, /startSession/);
 });
 
+test("evolution uses a dedicated navigation-gated event screen", () => {
+  assert.match(pageSource, /trying to evolve/);
+  assert.match(pageSource, /EvolutionPage/);
+  assert.match(pageSource, /reached \{event\.toStage\} stage/);
+  assert.match(pageSource, /pendingEvolution/);
+});
+
 test("admin backup and progress export actions are exposed", () => {
   assert.match(pageSource, /Download backup/);
   assert.match(pageSource, /Export progress CSV/);

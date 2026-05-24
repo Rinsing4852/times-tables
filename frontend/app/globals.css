@@ -510,6 +510,183 @@ h2 {
   font-weight: 900;
 }
 
+.evolutionPrompt {
+  display: grid;
+  gap: 6px;
+  width: min(520px, 100%);
+  border: 2px solid #18212f;
+  border-radius: 8px;
+  background: #fff9db;
+  box-shadow: 0 6px 0 #18212f;
+  padding: 16px;
+  text-align: center;
+}
+
+.evolutionPrompt span {
+  color: #7c3aed;
+  font-weight: 950;
+  text-transform: uppercase;
+  font-size: 0.8rem;
+}
+
+.evolutionPrompt strong {
+  font-size: 1.2rem;
+}
+
+.evolutionPrompt p {
+  margin: 0;
+  color: var(--muted);
+  font-weight: 900;
+}
+
+.evolutionPage {
+  min-height: 100dvh;
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 18px;
+  overflow: hidden;
+  color: white;
+  text-align: center;
+  background:
+    radial-gradient(circle at 50% 45%, rgba(255, 255, 255, 0.28), transparent 24%),
+    repeating-linear-gradient(90deg, #1b1342 0 18px, #25185d 18px 36px);
+  padding: 20px;
+}
+
+.evolutionPage::before {
+  content: "";
+  position: absolute;
+  inset: -20%;
+  z-index: -2;
+  background: conic-gradient(from 0deg, #f2d133, #7de3ff, #ffffff, #8ad46f, #f2d133);
+  animation: evolutionSpin 3.4s linear infinite;
+  opacity: 0.42;
+}
+
+.evolutionPage::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: repeating-linear-gradient(0deg, rgba(255,255,255,0.08) 0 2px, transparent 2px 8px);
+  mix-blend-mode: screen;
+}
+
+.evolutionPage .eyebrow,
+.evolutionPage h2 {
+  color: white;
+  text-shadow: 0 3px 0 rgba(0,0,0,0.35);
+}
+
+.evolutionPage h2 {
+  font-size: clamp(2rem, 7vw, 4rem);
+}
+
+.evolutionStage {
+  width: min(820px, 100%);
+  display: grid;
+  grid-template-columns: minmax(130px, 1fr) 92px minmax(130px, 1fr);
+  gap: 16px;
+  align-items: center;
+}
+
+.evolutionStage .creatureAvatar {
+  width: min(240px, 34vw);
+  height: min(240px, 34vw);
+  margin: 0 auto;
+  filter: drop-shadow(0 24px 14px rgba(0, 0, 0, 0.32));
+}
+
+.evolutionStage .creatureAvatar:first-child {
+  animation: evolutionBefore 1.4s steps(2, end) infinite;
+}
+
+.evolutionStage .creatureAvatar:last-child {
+  animation: evolutionAfter 1.4s steps(2, end) infinite;
+}
+
+.evolutionFlash {
+  display: grid;
+  place-items: center;
+}
+
+.evolutionFlash span {
+  width: 78px;
+  height: 78px;
+  display: block;
+  background: #fff;
+  clip-path: polygon(50% 0, 61% 35%, 100% 35%, 68% 57%, 79% 100%, 50% 70%, 21% 100%, 32% 57%, 0 35%, 39% 35%);
+  animation: evolutionPulse 0.7s steps(2, end) infinite;
+}
+
+.evolutionMessage {
+  width: min(560px, 100%);
+  display: grid;
+  gap: 8px;
+  border: 2px solid white;
+  border-radius: 8px;
+  background: rgba(12, 18, 32, 0.68);
+  box-shadow: 0 8px 0 rgba(0, 0, 0, 0.35);
+  padding: 16px;
+}
+
+.evolutionMessage strong {
+  font-size: 1.25rem;
+}
+
+.evolutionMessage p {
+  margin: 0;
+  color: #edf6ff;
+  font-weight: 800;
+}
+
+@keyframes evolutionSpin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+@keyframes evolutionPulse {
+  0%,
+  100% {
+    transform: scale(0.85) rotate(0deg);
+    opacity: 0.72;
+  }
+  50% {
+    transform: scale(1.18) rotate(22deg);
+    opacity: 1;
+  }
+}
+
+@keyframes evolutionBefore {
+  0%,
+  42% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  43%,
+  100% {
+    opacity: 0.22;
+    transform: translateY(-4px) scale(1.06);
+  }
+}
+
+@keyframes evolutionAfter {
+  0%,
+  42% {
+    opacity: 0.22;
+    transform: translateY(4px) scale(0.96);
+  }
+  43%,
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1.04);
+  }
+}
+
 .creatureInfo {
   display: grid;
   gap: 10px;
@@ -1309,6 +1486,21 @@ h2 {
     grid-template-columns: 1fr;
     justify-items: center;
     text-align: center;
+  }
+
+  .evolutionStage {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .evolutionStage .creatureAvatar {
+    width: 168px;
+    height: 168px;
+  }
+
+  .evolutionFlash span {
+    width: 52px;
+    height: 52px;
   }
 
   .adminPanel {

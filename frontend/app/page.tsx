@@ -120,7 +120,13 @@ type ResultQuestion = {
   is_correct: boolean;
   response_time_ms: number;
 };
-type Mode = "home" | "practice" | "quest" | "challenge" | "profile" | "dashboard";
+type Mode = "home" | "practice" | "quest" | "challenge" | "profile" | "dashboard" | "evolution";
+type EvolutionEvent = {
+  creatureName: string;
+  creatureType: string;
+  fromStage: string;
+  toStage: string;
+};
 type PracticeSummary = {
   attempted: number;
   correct: number;
@@ -215,7 +221,35 @@ export default function Home() {
   const [activeQuest, setActiveQuest] = useState<QuestStart | null>(null);
   const [appVersion, setAppVersion] = useState("");
   const [adminUsers, setAdminUsers] = useState<User[]>([]);
-  const focusMode = tab === "practice" || tab === "quest" || tab === "challenge";
+  const [pendingEvolution, setPendingEvolution] = useState<EvolutionEvent | null>(null);
+  const [postEvolutionTab, setPostEvolutionTab] = useState<Mode>("home");
+  const focusMode = tab === "practice" || tab === "quest" || tab === "challenge" || tab === "evolution";
+
+  function queueEvolution(updatedCreature: Creature | null) {
+    if (!updatedCreature?.evolution_from || !updatedCreature.evolution_to) return;
+    setPendingEvolution({
+      creatureName: updatedCreature.creature_name,
+      creatureType: updatedCreature.creature_type,
+      fromStage: updatedCreature.evolution_from,
+      toStage: updatedCreature.evolution_to
+    });
+  }
+
+  function navigate(nextTab: Mode) {
+    if (pendingEvolution && tab !== "evolution") {
+      setPostEvolutionTab(nextTab);
+      setTab("evolution");
+      return;
+    }
+    setTab(nextTab);
+  }
+
+  function continueAfterEvolution() {
+    const nextTab = postEvolutionTab === "evolution" ? "home" : postEvolutionTab;
+    setPendingEvolution(null);
+    setPostEvolutionTab("home");
+    setTab(nextTab);
+  }
 
   async function loadUsers() {
     const data = await api<User[]>("/users");
@@ -313,6 +347,7 @@ export default function Home() {
       body: JSON.stringify(payload)
     });
     setCreature(updated);
+    queueEvolution(updated);
     return updated;
   }
 
@@ -327,19 +362,19 @@ export default function Home() {
 
   function startPracticeSession(limit: number) {
     setPracticePreset(limit);
-    setTab("practice");
+    navigate("practice");
   }
 
   function startChallengeRound(limit: number) {
     setChallengePreset(limit);
-    setTab("challenge");
+    navigate("challenge");
   }
 
   async function startQuest(quest: TrainingQuest) {
     if (!activeUser) return;
     const data = await api<QuestStart>(`/users/${activeUser.id}/quests/${quest.quest_id}/start`, { method: "POST" });
     setActiveQuest(data);
-    setTab("quest");
+    navigate("quest");
   }
 
   async function completeQuest(quest: TrainingQuest, payload: CreatureSessionPayload, factsPractised: number[]) {
@@ -355,6 +390,7 @@ export default function Home() {
       })
     });
     setCreature(result.creature);
+    queueEvolution(result.creature);
     await loadQuests(activeUser.id);
     return { sessionCreature, questResult: result };
   }
@@ -388,10 +424,10 @@ export default function Home() {
           </form>
           {activeUser && (
             <div className="settingsActions" aria-label="Settings pages">
-              <button type="button" className={tab === "profile" ? "active" : ""} onClick={() => setTab("profile")}>
+              <button type="button" className={tab === "profile" ? "active" : ""} onClick={() => navigate("profile")}>
                 Profile
               </button>
-              <button type="button" className={tab === "dashboard" ? "active" : ""} onClick={() => setTab("dashboard")}>
+              <button type="button" className={tab === "dashboard" ? "active" : ""} onClick={() => navigate("dashboard")}>
                 Dashboard
               </button>
             </div>
@@ -410,14 +446,14 @@ export default function Home() {
       <section className="workspace">
         {!focusMode && <nav className="tabs" aria-label="Modes">
           {(["home", "practice", "challenge"] as const).map((item) => (
-            <button key={item} className={tab === item ? "active" : ""} onClick={() => setTab(item)} type="button">
+            <button key={item} className={tab === item ? "active" : ""} onClick={() => navigate(item)} type="button">
               {item[0].toUpperCase() + item.slice(1)}
             </button>
           ))}
         </nav>}
         {!focusMode && <label className="modeSelect">
           Mode
-          <select value={tab === "profile" || tab === "dashboard" ? "home" : tab} onChange={(event) => setTab(event.target.value as Mode)}>
+          <select value={tab === "profile" || tab === "dashboard" ? "home" : tab} onChange={(event) => navigate(event.target.value as Mode)}>
             <option value="home">Home</option>
             <option value="practice">Practice</option>
             <option value="challenge">Challenge</option>
@@ -464,8 +500,9 @@ export default function Home() {
                 initialLimit={practicePreset}
                 creature={creature}
                 onSessionComplete={completeCreatureSession}
-                onBackHome={() => setTab("home")}
-                onShowDashboard={() => setTab("dashboard")}
+                onBackHome={() => navigate("home")}
+                onRestart={() => navigate("practice")}
+                onShowDashboard={() => navigate("dashboard")}
               />
             )}
             {tab === "quest" && activeQuest && (
@@ -474,8 +511,8 @@ export default function Home() {
                 questStart={activeQuest}
                 creature={creature}
                 onCompleteQuest={completeQuest}
-                onShowDashboard={() => setTab("dashboard")}
-                onBackHome={() => setTab("home")}
+                onShowDashboard={() => navigate("dashboard")}
+                onBackHome={() => navigate("home")}
               />
             )}
             {tab === "challenge" && (
@@ -486,12 +523,16 @@ export default function Home() {
                 initialCount={challengePreset}
                 creature={creature}
                 onSessionComplete={completeCreatureSession}
-                onBackHome={() => setTab("home")}
-                onShowDashboard={() => setTab("dashboard")}
+                onBackHome={() => navigate("home")}
+                onRestart={() => navigate("challenge")}
+                onShowDashboard={() => navigate("dashboard")}
               />
             )}
             {tab === "profile" && <CreatureProfile creature={creature} onSelectCosmetic={selectCosmetic} onUpdateCreature={updateCreature} />}
             {tab === "dashboard" && <DashboardView dashboard={dashboard} tables={tables} />}
+            {tab === "evolution" && pendingEvolution && (
+              <EvolutionPage event={pendingEvolution} onContinue={continueAfterEvolution} />
+            )}
           </>
         )}
         {status && <p className="error">{status}</p>}
@@ -596,27 +637,37 @@ function CreatureAvatar({ type, stage, cosmetic = "starter-star" }: { type: stri
   );
 }
 
-function EvolutionMoment({
-  creatureName,
-  creatureType,
-  fromStage,
-  toStage
-}: {
-  creatureName: string;
-  creatureType: string;
-  fromStage: string;
-  toStage: string;
-}) {
+function EvolutionPrompt({ creatureName, toStage }: { creatureName: string; toStage: string }) {
   return (
-    <div className="evolutionMoment">
-      <CreatureAvatar type={creatureType} stage={fromStage} />
-      <div>
-        <p className="eyebrow">Evolution</p>
-        <strong>{creatureName} grew stronger.</strong>
-        <span>{fromStage} → {toStage}</span>
-      </div>
-      <CreatureAvatar type={creatureType} stage={toStage} />
+    <div className="evolutionPrompt">
+      <span>Something is happening...</span>
+      <strong>It looks like {creatureName} is trying to evolve.</strong>
+      <p>Next stop: {toStage}.</p>
     </div>
+  );
+}
+
+function EvolutionPage({ event, onContinue }: { event: EvolutionEvent; onContinue: () => void }) {
+  return (
+    <section className="evolutionPage" aria-live="polite">
+      <div className="evolutionStars" aria-hidden="true" />
+      <p className="eyebrow">Evolution</p>
+      <h2>{event.creatureName} is evolving.</h2>
+      <div className="evolutionStage">
+        <CreatureAvatar type={event.creatureType} stage={event.fromStage} />
+        <div className="evolutionFlash" aria-hidden="true">
+          <span />
+        </div>
+        <CreatureAvatar type={event.creatureType} stage={event.toStage} />
+      </div>
+      <div className="evolutionMessage">
+        <strong>{event.creatureName} reached {event.toStage} stage.</strong>
+        <p>Your practice helped {event.creatureName} grow stronger.</p>
+      </div>
+      <button type="button" className="startTestButton" onClick={onContinue}>
+        Continue
+      </button>
+    </section>
   );
 }
 
@@ -868,6 +919,7 @@ function PracticeMode({
   creature,
   onSessionComplete,
   onBackHome,
+  onRestart,
   onShowDashboard
 }: {
   user: User;
@@ -877,6 +929,7 @@ function PracticeMode({
   creature: Creature | null;
   onSessionComplete: (payload: CreatureSessionPayload) => Promise<Creature | null>;
   onBackHome: () => void;
+  onRestart: () => void;
   onShowDashboard: () => void;
 }) {
   const [question, setQuestion] = useState<Question | null>(null);
@@ -1114,13 +1167,8 @@ function PracticeMode({
       {sessionDone ? (
         <div className="sessionComplete">
           <h2>Practice complete</h2>
-          {summary?.evolutionFrom && summary.evolutionTo && creature && (
-            <EvolutionMoment
-              creatureName={summary.creatureName}
-              creatureType={creature.creature_type}
-              fromStage={summary.evolutionFrom}
-              toStage={summary.evolutionTo}
-            />
+          {summary?.evolutionFrom && summary.evolutionTo && (
+            <EvolutionPrompt creatureName={summary.creatureName} toStage={summary.evolutionTo} />
           )}
           <p>{summary?.creatureName || "Your companion"} gained energy.</p>
           <p>Energy gained: +{summary?.energyGained ?? 0}</p>
@@ -1136,7 +1184,7 @@ function PracticeMode({
             <p className="quiet">Unlocked: {summary.newUnlocks.map((item) => item.name).join(", ")}</p>
           )}
           <div className="actionRow">
-            <button type="button" onClick={restartSession}>
+            <button type="button" onClick={summary?.evolutionFrom && summary.evolutionTo ? onRestart : restartSession}>
               Start again
             </button>
             <button type="button" className="secondaryButton" onClick={onShowDashboard}>
@@ -1334,12 +1382,7 @@ function QuestMode({
         <div className="sessionComplete">
           <h2>{creature?.creature_name || "Your companion"} completed a training quest.</h2>
           {result.creature.evolution_from && result.creature.evolution_to && (
-            <EvolutionMoment
-              creatureName={result.creature.creature_name}
-              creatureType={result.creature.creature_type}
-              fromStage={result.creature.evolution_from}
-              toStage={result.creature.evolution_to}
-            />
+            <EvolutionPrompt creatureName={result.creature.creature_name} toStage={result.creature.evolution_to} />
           )}
           <p>You practised {result.facts_practised.length} focused facts.</p>
           <p>
@@ -1399,6 +1442,7 @@ function ChallengeMode({
   creature,
   onSessionComplete,
   onBackHome,
+  onRestart,
   onShowDashboard
 }: {
   user: User;
@@ -1408,6 +1452,7 @@ function ChallengeMode({
   creature: Creature | null;
   onSessionComplete: (payload: CreatureSessionPayload) => Promise<Creature | null>;
   onBackHome: () => void;
+  onRestart: () => void;
   onShowDashboard: () => void;
 }) {
   const [count, setCount] = useState(initialCount);
@@ -1585,11 +1630,10 @@ function ChallengeMode({
           energyGained={creatureReward?.energy_gained || 0}
           xpGained={creatureReward?.xp_gained || 0}
           stageMessage={creatureReward?.stage_message || ""}
-          creatureType={creatureReward?.creature_type || creature?.creature_type || "Blob"}
           evolutionFrom={creatureReward?.evolution_from || null}
           evolutionTo={creatureReward?.evolution_to || null}
           newUnlocks={creatureReward?.new_unlocks || []}
-          onRestart={start}
+          onRestart={creatureReward?.evolution_from && creatureReward.evolution_to ? onRestart : start}
           onBackHome={onBackHome}
           onShowDashboard={onShowDashboard}
         />
@@ -1605,7 +1649,6 @@ function ChallengeResults({
   energyGained,
   xpGained,
   stageMessage,
-  creatureType,
   evolutionFrom,
   evolutionTo,
   newUnlocks,
@@ -1619,7 +1662,6 @@ function ChallengeResults({
   energyGained: number;
   xpGained: number;
   stageMessage: string;
-  creatureType: string;
   evolutionFrom: string | null;
   evolutionTo: string | null;
   newUnlocks: Cosmetic[];
@@ -1630,7 +1672,7 @@ function ChallengeResults({
   return (
     <div className="results">
       {evolutionFrom && evolutionTo && (
-        <EvolutionMoment creatureName={creatureName} creatureType={creatureType} fromStage={evolutionFrom} toStage={evolutionTo} />
+        <EvolutionPrompt creatureName={creatureName} toStage={evolutionTo} />
       )}
       <div className="creatureResult">
         <strong>{creatureName} gained {energyGained} energy and {xpGained} XP from your challenge.</strong>
