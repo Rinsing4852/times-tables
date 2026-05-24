@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" role="img" aria-label="Robot Hatchling stage">
+  <defs>
+    <linearGradient id="body" x1="48" x2="192" y1="28" y2="224" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#e7f2ff"/>
+      <stop offset=".68" stop-color="#8fb7d8"/>
+      <stop offset="1" stop-color="#557da4"/>
+    </linearGradient>
+  </defs>
+  <path d="M83 78h74" stroke="#18212f" stroke-width="7" stroke-linecap="round"/><circle cx="120" cy="33" r="9" fill="#77e0ff" stroke="#18212f" stroke-width="6"/>
+  <path d="M91 72 69 44M149 72l22-28" stroke="#18212f" stroke-width="7" stroke-linecap="round"/>
+<circle cx="67" cy="42" r="8" fill="#77e0ff" stroke="#18212f" stroke-width="5"/>
+<circle cx="173" cy="42" r="8" fill="#77e0ff" stroke="#18212f" stroke-width="5"/>
+  
+  
+  <path d="M68 128c0-50 23-79 52-79s52 29 52 79v25c0 34-23 56-52 56s-52-22-52-56z" fill="url(#body)" stroke="#18212f" stroke-width="8"/>
+  
+  <circle cx="96" cy="114" r="9" fill="#18212f"/>
+  <circle cx="144" cy="114" r="9" fill="#18212f"/>
+  <path d="M106 153c11 10 17 10 28 0" fill="none" stroke="#18212f" stroke-width="7" stroke-linecap="round"/>
+  <path d="M90 155 72 232M150 155l18 20" stroke="#18212f" stroke-width="10" stroke-linecap="round"/>
+</svg>

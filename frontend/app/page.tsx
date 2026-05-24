@@ -25,6 +25,8 @@ type Creature = {
   status_message: string;
   energy_gained: number;
   stage_message: string;
+  evolution_from: string | null;
+  evolution_to: string | null;
   reward_reasons: string[];
   total_questions_answered: number;
   total_sessions_completed: number;
@@ -128,6 +130,8 @@ type PracticeSummary = {
   creatureStatus: string;
   creatureName: string;
   stageMessage: string;
+  evolutionFrom: string | null;
+  evolutionTo: string | null;
   rewardReasons: string[];
   newUnlocks: Cosmetic[];
 };
@@ -135,12 +139,20 @@ type PracticeSummary = {
 const DEFAULT_TABLES = [2, 3, 4, 5];
 const ALL_TABLES = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 const CREATURE_TYPES = ["Blob", "Dragon", "Robot", "Forest Sprite", "Rock Golem", "Space Beast"];
-const STAGE_ASSETS: Record<string, string> = {
-  Egg: "/assets/creatures/stage-egg.svg",
-  Hatchling: "/assets/creatures/stage-hatchling.svg",
-  Youngling: "/assets/creatures/stage-youngling.svg",
-  Explorer: "/assets/creatures/stage-explorer.svg",
-  Champion: "/assets/creatures/stage-champion.svg"
+const STAGE_SLUGS: Record<string, string> = {
+  Egg: "egg",
+  Hatchling: "hatchling",
+  Youngling: "youngling",
+  Explorer: "explorer",
+  Champion: "champion"
+};
+const CREATURE_SLUGS: Record<string, string> = {
+  Blob: "blob",
+  Dragon: "dragon",
+  Robot: "robot",
+  "Forest Sprite": "forest-sprite",
+  "Rock Golem": "rock-golem",
+  "Space Beast": "space-beast"
 };
 
 function formatMs(ms: number) {
@@ -179,6 +191,12 @@ function pressAnswerKey(inputRef: RefObject<HTMLInputElement | null>, key: strin
   }
   setAnswerValue(inputRef, `${current}${key}`.slice(0, 4));
   focusAnswer(inputRef);
+}
+
+function creatureAsset(type: string, stage: string) {
+  const typeSlug = CREATURE_SLUGS[type] || "blob";
+  const stageSlug = STAGE_SLUGS[stage] || "egg";
+  return `/assets/creatures/${typeSlug}-${stageSlug}.svg`;
 }
 
 export default function Home() {
@@ -570,10 +588,34 @@ function CreatureHome({
 }
 
 function CreatureAvatar({ type, stage, cosmetic = "starter-star" }: { type: string; stage: string; cosmetic?: string }) {
-  const stageAsset = STAGE_ASSETS[stage] || STAGE_ASSETS.Egg;
+  const stageAsset = creatureAsset(type, stage);
   return (
     <div className={`creatureAvatar ${type.toLowerCase().replaceAll(" ", "-")} stage-${stage.toLowerCase()} ${cosmetic}`} role="img" aria-label={`${type} ${stage} stage`}>
       <span className="creatureStageAsset" style={{ backgroundImage: `url(${stageAsset})` }} />
+    </div>
+  );
+}
+
+function EvolutionMoment({
+  creatureName,
+  creatureType,
+  fromStage,
+  toStage
+}: {
+  creatureName: string;
+  creatureType: string;
+  fromStage: string;
+  toStage: string;
+}) {
+  return (
+    <div className="evolutionMoment">
+      <CreatureAvatar type={creatureType} stage={fromStage} />
+      <div>
+        <p className="eyebrow">Evolution</p>
+        <strong>{creatureName} grew stronger.</strong>
+        <span>{fromStage} → {toStage}</span>
+      </div>
+      <CreatureAvatar type={creatureType} stage={toStage} />
     </div>
   );
 }
@@ -598,6 +640,14 @@ function AdminPanel({ adminUser, users, onRefresh }: { adminUser: User; users: U
     await onRefresh();
   }
 
+  function downloadBackup() {
+    window.open(`/backend-api/admin/${adminUser.id}/backup`, "_blank", "noopener,noreferrer");
+  }
+
+  function exportProgress() {
+    window.open(`/backend-api/admin/${adminUser.id}/progress.csv`, "_blank", "noopener,noreferrer");
+  }
+
   return (
     <section className="adminPanel">
       <div className="adminHeader">
@@ -606,6 +656,10 @@ function AdminPanel({ adminUser, users, onRefresh }: { adminUser: User; users: U
           <p className="quiet">Create profiles, reset passcodes, and manage local access.</p>
         </div>
         <span>{users.length} profiles</span>
+      </div>
+      <div className="adminExportActions">
+        <button type="button" className="secondaryButton" onClick={downloadBackup}>Download backup</button>
+        <button type="button" className="secondaryButton" onClick={exportProgress}>Export progress CSV</button>
       </div>
       <form className="adminCreate" onSubmit={createUser}>
         <input value={newName} onChange={(event) => setNewName(event.target.value)} placeholder="Profile name" />
@@ -839,6 +893,7 @@ function PracticeMode({
   const [sessionDone, setSessionDone] = useState(false);
   const [summary, setSummary] = useState<PracticeSummary | null>(null);
   const [isChecking, setIsChecking] = useState(false);
+  const [started, setStarted] = useState(false);
   const startedAtRef = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const submittingRef = useRef(false);
@@ -874,8 +929,25 @@ function PracticeMode({
     setSessionDone(false);
     setSummary(null);
     setIsChecking(false);
+    setQuestion(null);
+    setStarted(false);
+  }, [questionLimit, tables, questionMode, user.id]);
+
+  function startSession() {
+    setStarted(true);
+    setCompletedCount(0);
+    setCorrectCount(0);
+    setFirstAttemptCorrectCount(0);
+    setSecondTryCorrectCount(0);
+    setPracticedWeakFact(false);
+    setImprovedFactAccuracy(false);
+    setPracticedDivision(false);
+    setSessionDone(false);
+    setSummary(null);
+    setFeedback("");
+    setIsChecking(false);
     loadQuestion().catch(() => setFeedback("Could not load a question."));
-  }, [loadQuestion, questionLimit]);
+  }
 
   async function finishQuestion(delayMs: number, wasCorrect: boolean, event: LearningEvent | null) {
     const nextCount = completedCount + 1;
@@ -918,6 +990,8 @@ function PracticeMode({
         creatureStatus: updatedCreature?.status_message || `${creature?.creature_name || "Your companion"} gained energy from your practice.`,
         creatureName: updatedCreature?.creature_name || creature?.creature_name || "Your companion",
         stageMessage: updatedCreature?.stage_message || "",
+        evolutionFrom: updatedCreature?.evolution_from || null,
+        evolutionTo: updatedCreature?.evolution_to || null,
         rewardReasons: updatedCreature?.reward_reasons || [],
         newUnlocks: updatedCreature?.new_unlocks || []
       });
@@ -940,6 +1014,7 @@ function PracticeMode({
     setIsChecking(false);
     setAnswerValue(inputRef, "");
     setAttemptNumber(1);
+    setStarted(true);
     setTimeout(loadQuestion, 0);
   }
 
@@ -996,8 +1071,35 @@ function PracticeMode({
   }
 
   function backHome() {
-    if (!sessionDone && !window.confirm("Leave this practice session and go home? Current session progress will not be completed.")) return;
+    if (started && !sessionDone && !window.confirm("Leave this practice session and go home? Current session progress will not be completed.")) return;
     onBackHome();
+  }
+
+  if (!started && !sessionDone) {
+    return (
+      <section className="practiceSetup panel">
+        <button type="button" className="focusBackButton" onClick={onBackHome} aria-label="Back to home">
+          Home
+        </button>
+        <p className="eyebrow">Practice setup</p>
+        <h2>Choose your training run</h2>
+        <div className="setupGrid">
+          <div>
+            <span className="fieldLabel">Questions</span>
+            <div className="segmented" aria-label="Practice length">
+              {[5, 10, 15, 20].map((limit) => (
+                <button key={limit} className={questionLimit === limit ? "active" : ""} onClick={() => setQuestionLimit(limit)} type="button">
+                  {limit}
+                </button>
+              ))}
+            </div>
+          </div>
+          <Metric label="Tables" value={tables.join(", ")} />
+          <Metric label="Type" value={questionMode === "multiply" ? "Multiplication" : questionMode === "division" ? "Division" : "Mixed"} />
+        </div>
+        <button type="button" className="startTestButton" onClick={startSession}>Start practice</button>
+      </section>
+    );
   }
 
   return (
@@ -1012,6 +1114,14 @@ function PracticeMode({
       {sessionDone ? (
         <div className="sessionComplete">
           <h2>Practice complete</h2>
+          {summary?.evolutionFrom && summary.evolutionTo && creature && (
+            <EvolutionMoment
+              creatureName={summary.creatureName}
+              creatureType={creature.creature_type}
+              fromStage={summary.evolutionFrom}
+              toStage={summary.evolutionTo}
+            />
+          )}
           <p>{summary?.creatureName || "Your companion"} gained energy.</p>
           <p>Energy gained: +{summary?.energyGained ?? 0}</p>
           <p>XP gained: +{summary?.xpGained ?? 0}</p>
@@ -1223,6 +1333,14 @@ function QuestMode({
       <section className="practiceSurface">
         <div className="sessionComplete">
           <h2>{creature?.creature_name || "Your companion"} completed a training quest.</h2>
+          {result.creature.evolution_from && result.creature.evolution_to && (
+            <EvolutionMoment
+              creatureName={result.creature.creature_name}
+              creatureType={result.creature.creature_type}
+              fromStage={result.creature.evolution_from}
+              toStage={result.creature.evolution_to}
+            />
+          )}
           <p>You practised {result.facts_practised.length} focused facts.</p>
           <p>
             You got {firstAttemptCorrectCount} right first time and fixed {secondTryCorrectCount} on your second try.
@@ -1467,6 +1585,9 @@ function ChallengeMode({
           energyGained={creatureReward?.energy_gained || 0}
           xpGained={creatureReward?.xp_gained || 0}
           stageMessage={creatureReward?.stage_message || ""}
+          creatureType={creatureReward?.creature_type || creature?.creature_type || "Blob"}
+          evolutionFrom={creatureReward?.evolution_from || null}
+          evolutionTo={creatureReward?.evolution_to || null}
           newUnlocks={creatureReward?.new_unlocks || []}
           onRestart={start}
           onBackHome={onBackHome}
@@ -1484,6 +1605,9 @@ function ChallengeResults({
   energyGained,
   xpGained,
   stageMessage,
+  creatureType,
+  evolutionFrom,
+  evolutionTo,
   newUnlocks,
   onRestart,
   onBackHome,
@@ -1495,6 +1619,9 @@ function ChallengeResults({
   energyGained: number;
   xpGained: number;
   stageMessage: string;
+  creatureType: string;
+  evolutionFrom: string | null;
+  evolutionTo: string | null;
   newUnlocks: Cosmetic[];
   onRestart: () => void;
   onBackHome: () => void;
@@ -1502,6 +1629,9 @@ function ChallengeResults({
 }) {
   return (
     <div className="results">
+      {evolutionFrom && evolutionTo && (
+        <EvolutionMoment creatureName={creatureName} creatureType={creatureType} fromStage={evolutionFrom} toStage={evolutionTo} />
+      )}
       <div className="creatureResult">
         <strong>{creatureName} gained {energyGained} energy and {xpGained} XP from your challenge.</strong>
         {stageMessage && <p>{stageMessage}</p>}

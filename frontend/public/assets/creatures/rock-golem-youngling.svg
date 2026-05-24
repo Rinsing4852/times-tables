@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" role="img" aria-label="Rock Golem Youngling stage">
+  <defs>
+    <linearGradient id="body" x1="48" x2="192" y1="28" y2="224" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#f1eee8"/>
+      <stop offset=".68" stop-color="#a59d91"/>
+      <stop offset="1" stop-color="#726b63"/>
+    </linearGradient>
+  </defs>
+  <path d="M72 75 95 43h51l23 32" fill="#8d867d" stroke="#18212f" stroke-width="7" stroke-linejoin="round"/>
+  <path d="M77 73 55 47l-16 42" fill="#d8c29a" stroke="#18212f" stroke-width="7" stroke-linejoin="round"/>
+<path d="m163 73 22-26 16 42" fill="#d8c29a" stroke="#18212f" stroke-width="7" stroke-linejoin="round"/>
+  
+  <path d="M51.56 140 25 160M188.44 140l37 20" stroke="#18212f" stroke-width="10" stroke-linecap="round"/>
+  <path d="M62 128c0-56 26-88 58-88s58 32 58 88v28c0 38-25 62-58 62s-58-24-58-62z" fill="url(#body)" stroke="#18212f" stroke-width="8"/>
+  
+  <circle cx="96" cy="114" r="9" fill="#18212f"/>
+  <circle cx="144" cy="114" r="9" fill="#18212f"/>
+  <path d="M106 153c11 10 17 10 28 0" fill="none" stroke="#18212f" stroke-width="7" stroke-linecap="round"/>
+  <path d="M90 159 72 232M150 159l18 20" stroke="#18212f" stroke-width="10" stroke-linecap="round"/>
+</svg>

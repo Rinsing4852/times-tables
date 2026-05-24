@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" role="img" aria-label="Space Beast Youngling stage">
+  <defs>
+    <linearGradient id="body" x1="48" x2="192" y1="28" y2="224" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#efeaff"/>
+      <stop offset=".68" stop-color="#7e6ed6"/>
+      <stop offset="1" stop-color="#5545a8"/>
+    </linearGradient>
+  </defs>
+  <circle cx="190" cy="58" r="10" fill="#7de3ff" stroke="#18212f" stroke-width="5"/><path d="M53 58h18M62 49v18" stroke="#f2d133" stroke-width="6" stroke-linecap="round"/>
+  <path d="m78 72-27-8-15 24 30 8" fill="#7de3ff" stroke="#18212f" stroke-width="7" stroke-linejoin="round"/>
+<path d="m162 72 27-8 15 24-30 8" fill="#7de3ff" stroke="#18212f" stroke-width="7" stroke-linejoin="round"/>
+  
+  <path d="M51.56 140 25 160M188.44 140l37 20" stroke="#18212f" stroke-width="10" stroke-linecap="round"/>
+  <path d="M62 128c0-56 26-88 58-88s58 32 58 88v28c0 38-25 62-58 62s-58-24-58-62z" fill="url(#body)" stroke="#18212f" stroke-width="8"/>
+  
+  <circle cx="96" cy="114" r="9" fill="#18212f"/>
+  <circle cx="144" cy="114" r="9" fill="#18212f"/>
+  <path d="M106 153c11 10 17 10 28 0" fill="none" stroke="#18212f" stroke-width="7" stroke-linecap="round"/>
+  <path d="M90 159 72 232M150 159l18 20" stroke="#18212f" stroke-width="10" stroke-linecap="round"/>
+</svg>

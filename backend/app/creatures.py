@@ -208,6 +208,8 @@ def creature_payload(
     reward_reasons: list[str] | None = None,
     new_unlocks: list[str] | None = None,
     stage_message: str = "",
+    evolution_from: str | None = None,
+    evolution_to: str | None = None,
 ) -> dict:
     current_energy = decayed_energy(user)
     name = user.creature_name or "Buddy"
@@ -241,6 +243,8 @@ def creature_payload(
         "status_message": creature_status(name, current_energy),
         "energy_gained": energy_gained,
         "stage_message": stage_message,
+        "evolution_from": evolution_from,
+        "evolution_to": evolution_to,
         "reward_reasons": reward_reasons or [],
         "last_practised_at": user.last_practised_at.isoformat() if user.last_practised_at else None,
         "total_questions_answered": user.total_questions_answered or 0,

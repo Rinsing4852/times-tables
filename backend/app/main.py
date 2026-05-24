@@ -1,4 +1,6 @@
 import hashlib
+import csv
+import io
 import secrets
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -6,6 +8,7 @@ from random import choice
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, Response
 from sqlalchemy import desc, func, inspect, select, text
 from sqlalchemy.orm import Session
 
@@ -342,6 +345,188 @@ def admin_delete_user(admin_user_id: int, target_user_id: int, db: Session = Dep
     return {"deleted": True}
 
 
+@app.get("/admin/{admin_user_id}/backup")
+def admin_backup(admin_user_id: int, db: Session = Depends(get_db)) -> JSONResponse:
+    require_admin(db, admin_user_id)
+    users = db.scalars(select(User).order_by(User.id)).all()
+    facts = db.scalars(select(Fact).order_by(Fact.id)).all()
+    stats = db.scalars(select(FactStat).order_by(FactStat.user_id, FactStat.fact_id)).all()
+    attempts = db.scalars(select(QuestionAttempt).order_by(QuestionAttempt.created_at)).all()
+    challenges = db.scalars(select(ChallengeSession).order_by(ChallengeSession.created_at)).all()
+    challenge_attempts = db.scalars(select(ChallengeAttempt).order_by(ChallengeAttempt.created_at)).all()
+    quests = db.scalars(select(TrainingQuest).order_by(TrainingQuest.generated_at)).all()
+    payload = {
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "app": {"name": "Recall Forge", "version": APP_VERSION},
+        "users": [
+            {
+                **user_payload(user),
+                "created_at": user.created_at.isoformat(),
+                "energy": decayed_energy(user),
+                "last_practised_at": user.last_practised_at.isoformat() if user.last_practised_at else None,
+                "total_questions_answered": user.total_questions_answered,
+                "total_sessions_completed": user.total_sessions_completed,
+                "xp": user.xp,
+                "level": user.level,
+                "stage": user.stage,
+                "unlocked_cosmetics": user.unlocked_cosmetics,
+                "selected_cosmetic": user.selected_cosmetic,
+                "weekly_practice_days": user.weekly_practice_days,
+            }
+            for user in users
+        ],
+        "facts": [{"id": fact.id, "a": fact.a, "b": fact.b, "product": fact.product} for fact in facts],
+        "fact_stats": [
+            {
+                "user_id": stat.user_id,
+                "fact_id": stat.fact_id,
+                "correct_count": stat.correct_count,
+                "incorrect_count": stat.incorrect_count,
+                "first_attempt_correct": stat.first_attempt_correct,
+                "first_attempt_total": stat.first_attempt_total,
+                "second_attempt_correct": stat.second_attempt_correct,
+                "second_attempt_total": stat.second_attempt_total,
+                "total_response_time_ms": stat.total_response_time_ms,
+                "response_count": stat.response_count,
+                "current_streak": stat.current_streak,
+                "last_seen": stat.last_seen.isoformat() if stat.last_seen else None,
+                "last_failed_at": stat.last_failed_at.isoformat() if stat.last_failed_at else None,
+            }
+            for stat in stats
+        ],
+        "question_attempts": [
+            {
+                "user_id": attempt.user_id,
+                "fact_id": attempt.fact_id,
+                "question_type": attempt.question_type,
+                "prompt": attempt.prompt,
+                "answer_given": attempt.answer_given,
+                "correct_answer": attempt.correct_answer,
+                "is_correct": attempt.is_correct,
+                "attempt_number": attempt.attempt_number,
+                "response_time_ms": attempt.response_time_ms,
+                "mode": attempt.mode,
+                "created_at": attempt.created_at.isoformat(),
+            }
+            for attempt in attempts
+        ],
+        "challenge_sessions": [
+            {
+                "id": session.id,
+                "user_id": session.user_id,
+                "question_count": session.question_count,
+                "selected_tables": session.selected_tables,
+                "total_time_ms": session.total_time_ms,
+                "correct_count": session.correct_count,
+                "created_at": session.created_at.isoformat(),
+            }
+            for session in challenges
+        ],
+        "challenge_attempts": [
+            {
+                "session_id": attempt.session_id,
+                "fact_id": attempt.fact_id,
+                "question_type": attempt.question_type,
+                "prompt": attempt.prompt,
+                "answer_given": attempt.answer_given,
+                "correct_answer": attempt.correct_answer,
+                "is_correct": attempt.is_correct,
+                "response_time_ms": attempt.response_time_ms,
+                "created_at": attempt.created_at.isoformat(),
+            }
+            for attempt in challenge_attempts
+        ],
+        "training_quests": [
+            {
+                "user_id": quest.user_id,
+                "quest_key": quest.quest_key,
+                "quest_type": quest.quest_type,
+                "title": quest.title,
+                "description": quest.description,
+                "target_fact_ids": quest.target_fact_ids,
+                "question_count": quest.question_count,
+                "reward_xp": quest.reward_xp,
+                "status": quest.status,
+                "generated_at": quest.generated_at.isoformat(),
+                "completed_at": quest.completed_at.isoformat() if quest.completed_at else None,
+            }
+            for quest in quests
+        ],
+    }
+    return JSONResponse(
+        payload,
+        headers={"Content-Disposition": 'attachment; filename="recall-forge-backup.json"'},
+    )
+
+
+@app.get("/admin/{admin_user_id}/progress.csv")
+def admin_progress_csv(admin_user_id: int, db: Session = Depends(get_db)) -> Response:
+    require_admin(db, admin_user_id)
+    rows = db.execute(
+        text(
+            """
+            SELECT users.name AS user_name,
+                   facts.a AS table_a,
+                   facts.b AS table_b,
+                   facts.product AS product,
+                   fact_stats.correct_count AS correct_count,
+                   fact_stats.incorrect_count AS incorrect_count,
+                   fact_stats.first_attempt_correct AS first_attempt_correct,
+                   fact_stats.first_attempt_total AS first_attempt_total,
+                   fact_stats.second_attempt_correct AS second_attempt_correct,
+                   fact_stats.second_attempt_total AS second_attempt_total,
+                   fact_stats.total_response_time_ms AS total_response_time_ms,
+                   fact_stats.response_count AS response_count,
+                   fact_stats.last_seen AS last_seen
+            FROM fact_stats
+            JOIN users ON users.id = fact_stats.user_id
+            JOIN facts ON facts.id = fact_stats.fact_id
+            ORDER BY users.name, facts.a, facts.b
+            """
+        )
+    ).all()
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(
+        [
+            "user",
+            "fact",
+            "product",
+            "correct",
+            "incorrect",
+            "accuracy",
+            "first_attempt_accuracy",
+            "second_attempt_accuracy",
+            "average_response_ms",
+            "last_seen",
+        ]
+    )
+    for row in rows:
+        total = row.correct_count + row.incorrect_count
+        first_total = row.first_attempt_total or 0
+        second_total = row.second_attempt_total or 0
+        response_count = row.response_count or 0
+        writer.writerow(
+            [
+                row.user_name,
+                f"{row.table_a}x{row.table_b}",
+                row.product,
+                row.correct_count,
+                row.incorrect_count,
+                round(row.correct_count / total, 3) if total else "",
+                round(row.first_attempt_correct / first_total, 3) if first_total else "",
+                round(row.second_attempt_correct / second_total, 3) if second_total else "",
+                round(row.total_response_time_ms / response_count) if response_count else "",
+                row.last_seen or "",
+            ]
+        )
+    return Response(
+        output.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="recall-forge-progress.csv"'},
+    )
+
+
 @app.get("/creature-types")
 def creature_types() -> dict:
     return {"creature_types": CREATURE_TYPES}
@@ -432,6 +617,8 @@ def complete_creature_session(user_id: int, payload: CreatureSessionComplete, db
         reward_reasons=reward_reasons,
         new_unlocks=new_unlocks,
         stage_message=stage_message,
+        evolution_from=previous_stage if new_stage != previous_stage else None,
+        evolution_to=new_stage if new_stage != previous_stage else None,
     )
 
 
@@ -500,6 +687,8 @@ def complete_training_quest(user_id: int, quest_id: int, payload: QuestComplete,
             xp_gained=quest.reward_xp,
             reward_reasons=[f"{quest.title} +{quest.reward_xp} XP"],
             stage_message=stage_message,
+            evolution_from=previous_stage if new_stage != previous_stage else None,
+            evolution_to=new_stage if new_stage != previous_stage else None,
         ),
         "facts_practised": fact_labels,
         "learning_message": "You gave these facts focused practice. That helps them become easier to remember next time.",

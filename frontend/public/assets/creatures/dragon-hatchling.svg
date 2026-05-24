@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" role="img" aria-label="Dragon Hatchling stage">
+  <defs>
+    <linearGradient id="body" x1="48" x2="192" y1="28" y2="224" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#e7ffd9"/>
+      <stop offset=".68" stop-color="#69b34c"/>
+      <stop offset="1" stop-color="#2f8f46"/>
+    </linearGradient>
+  </defs>
+  <path d="M181 141c29 6 42 25 33 46-18-19-32-21-51-12" fill="#69b34c" stroke="#18212f" stroke-width="7" stroke-linejoin="round"/>
+  <path d="M77 74 44 35l3 62" fill="#f2d133" stroke="#18212f" stroke-width="7" stroke-linejoin="round"/>
+<path d="m163 74 33-39-3 62" fill="#f2d133" stroke="#18212f" stroke-width="7" stroke-linejoin="round"/>
+  
+  
+  <path d="M68 128c0-50 23-79 52-79s52 29 52 79v25c0 34-23 56-52 56s-52-22-52-56z" fill="url(#body)" stroke="#18212f" stroke-width="8"/>
+  
+  <circle cx="96" cy="114" r="9" fill="#18212f"/>
+  <circle cx="144" cy="114" r="9" fill="#18212f"/>
+  <path d="M106 153c11 10 17 10 28 0" fill="none" stroke="#18212f" stroke-width="7" stroke-linecap="round"/>
+  <path d="M90 155 72 232M150 155l18 20" stroke="#18212f" stroke-width="10" stroke-linecap="round"/>
+</svg>

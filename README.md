@@ -1,6 +1,6 @@
 # Recall Forge
 
-Recall Forge is a self-hosted times tables practice app for local use. It is intentionally plain: local profiles, adaptive practice, smart training quests, challenge mode, heat maps, SQLite, no external login, no analytics, and no AI API. It also includes a light companion creature theme where practice gives the creature energy and XP while the learning engine stays focused on recall and spaced practice.
+Recall Forge is a self-hosted times tables practice app for local use. It is intentionally plain: local profiles, adaptive practice, smart training quests, challenge mode, heat maps, SQLite, no external login, no analytics, and no AI API. It also includes a light companion creature theme where practice gives the creature energy and XP while the learning engine stays focused on recall and spaced practice. Creatures now have type-specific evolution artwork, but they remain a calm maths companion rather than a needy care system.
 
 ## Stack
 
@@ -182,14 +182,23 @@ cd backend
 pytest
 ```
 
+Frontend smoke tests:
+
+```bash
+cd frontend
+npm test
+```
+
 ## V1 Features
 
 - Multiple local user profiles. The first profile created is the local admin profile.
 - Admin profiles can create other admins, rename profiles, reset passcodes, reset progress, and delete profiles.
-- A safe creature companion per profile with type, name, energy, XP, level, stage, weekly goal, and cosmetic unlocks.
+- A safe creature companion per profile with type, name, energy, XP, level, stage, weekly goal, cosmetic unlocks, and type-specific evolution artwork.
+- A positive evolution moment appears when a creature reaches a new growth stage.
 - Smart training quests generated from fact accuracy, speed, and recent mistakes.
 - A higher-reward explorer quest encourages tables that have had little or no practice.
 - Practice and challenge modes can be set to multiplication only, division only, or mixed questions.
+- Practice opens with a simple setup screen before the distraction-free answer surface.
 - Practice mode with multiplication, reversed multiplication, division, and missing-factor prompts.
 - One retry after an incorrect practice answer.
 - Challenge mode with no visible timer and end-of-session summary.
@@ -245,6 +254,8 @@ Creature state is stored on each local user profile:
 - `PATCH /admin/{admin_user_id}/users/{target_user_id}`
 - `POST /admin/{admin_user_id}/users/{target_user_id}/reset-progress`
 - `DELETE /admin/{admin_user_id}/users/{target_user_id}`
+- `GET /admin/{admin_user_id}/backup`
+- `GET /admin/{admin_user_id}/progress.csv`
 - `GET /version`
 - `GET /facts`
 - `GET /creature-types`

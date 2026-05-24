@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" role="img" aria-label="Space Beast Egg stage">
+  <defs>
+    <linearGradient id="body" x1="48" x2="192" y1="28" y2="224" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#efeaff"/>
+      <stop offset=".68" stop-color="#7e6ed6"/>
+      <stop offset="1" stop-color="#5545a8"/>
+    </linearGradient>
+  </defs>
+  <circle cx="190" cy="58" r="10" fill="#7de3ff" stroke="#18212f" stroke-width="5"/><path d="M53 58h18M62 49v18" stroke="#f2d133" stroke-width="6" stroke-linecap="round"/>
+  
+  
+  
+  <path d="M75 128c0-44 20-69 45-69s45 25 45 69v22c0 30-20 48-45 48s-45-19-45-48z" fill="url(#body)" stroke="#18212f" stroke-width="8"/>
+  <path d="M70 132c17-16 32-16 49 0 16 15 32 15 51 0" fill="none" stroke="#18212f" stroke-width="7" stroke-linecap="round"/>
+  <circle cx="96" cy="108" r="9" fill="#18212f"/>
+  <circle cx="144" cy="108" r="9" fill="#18212f"/>
+  <path d="M106 153c11 10 17 10 28 0" fill="none" stroke="#18212f" stroke-width="7" stroke-linecap="round"/>
+  
+</svg>
