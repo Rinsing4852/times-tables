@@ -10,7 +10,7 @@ from .creatures import current_week_key
 from .models import Fact, FactStat, TrainingQuest
 
 
-APP_VERSION = "0.4.1"
+APP_VERSION = "0.4.2"
 
 
 @dataclass(frozen=True)

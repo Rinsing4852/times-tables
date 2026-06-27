@@ -30,6 +30,13 @@ test("practice uses a setup screen before the focused answer surface", () => {
   assert.match(pageSource, /startSession/);
 });
 
+test("focused maths runs use a stable timer-free keypad", () => {
+  assert.match(pageSource, /aria-label="Number pad"/);
+  assert.match(pageSource, /Clear answer/);
+  assert.match(pageSource, /Delete last digit/);
+  assert.doesNotMatch(pageSource, /countdown/i);
+});
+
 test("evolution uses a dedicated navigation-gated event screen", () => {
   assert.match(pageSource, /trying to evolve/);
   assert.match(pageSource, /EvolutionPage/);
