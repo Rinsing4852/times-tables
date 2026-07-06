@@ -45,7 +45,7 @@ services:
       BACKEND_INTERNAL_URL: http://times-tables-backend:8000
       NEXT_TELEMETRY_DISABLED: "1"
     ports:
-      - "${UNRAID_LAN_IP:-192.168.1.50}:3000:3000"
+      - "${UNRAID_LAN_IP:-192.168.1.50}:${RECALL_FORGE_PORT:-3000}:3000"
     depends_on:
       times-tables-backend:
         condition: service_healthy

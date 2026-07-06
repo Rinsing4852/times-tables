@@ -56,8 +56,10 @@ Or set `UNRAID_LAN_IP` directly in Dockge, or replace the default `192.168.1.50`
 
 ```yaml
 ports:
-  - "${UNRAID_LAN_IP:-192.168.1.50}:3000:3000"
+  - "${UNRAID_LAN_IP:-192.168.1.50}:${RECALL_FORGE_PORT:-3000}:3000"
 ```
+
+If another application already uses port `3000`, set `RECALL_FORGE_PORT=3001` in `.env` and open Recall Forge on port `3001` instead.
 
 The data directory can also be overridden with `TIMES_TABLES_DATA_DIR`. On Unraid, the default is already:
 
@@ -122,7 +124,7 @@ Do not delete the data folder unless you intentionally want to reset the app.
 The browser should use:
 
 ```text
-http://YOUR-UNRAID-IP:3000
+http://YOUR-UNRAID-IP:RECALL_FORGE_PORT
 ```
 
 The frontend calls the backend through a same-origin proxy at `/backend-api/*`, then the frontend container forwards those requests internally to:
