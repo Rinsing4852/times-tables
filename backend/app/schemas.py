@@ -1,4 +1,6 @@
-from typing import Literal
+from __future__ import annotations
+
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -19,13 +21,13 @@ CreatureType = Literal["Blob", "Dragon", "Robot", "Forest Sprite", "Rock Golem",
 class UserCreate(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     is_admin: bool = False
-    password: str | None = Field(default=None, max_length=80)
+    password: Optional[str] = Field(default=None, max_length=80)
 
 
 class UserAdminUpdate(BaseModel):
-    name: str | None = Field(default=None, min_length=1, max_length=80)
-    is_admin: bool | None = None
-    password: str | None = Field(default=None, max_length=80)
+    name: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    is_admin: Optional[bool] = None
+    password: Optional[str] = Field(default=None, max_length=80)
 
 
 class UserOut(BaseModel):
@@ -35,18 +37,29 @@ class UserOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class LoginRequest(BaseModel):
+    user_id: int
+    password: str = Field(default="", max_length=80)
+
+
 class TablesRequest(BaseModel):
     user_id: int
     tables: list[int] = Field(min_length=1)
     question_mode: QuestionMode = "mixed"
 
 
+class PracticeStart(TablesRequest):
+    question_count: int = Field(ge=1, le=100)
+
+
+class PracticeQuestionRequest(BaseModel):
+    session_id: str = Field(min_length=16, max_length=64)
+
+
 class PracticeAnswer(BaseModel):
-    user_id: int
-    fact_id: int
-    question_type: QuestionType
+    session_id: str = Field(min_length=16, max_length=64)
+    question_id: int
     answer: str = Field(max_length=32)
-    attempt_number: int = Field(ge=1, le=2)
     response_time_ms: int = Field(ge=0, le=3_600_000)
 
 
@@ -58,15 +71,13 @@ class ChallengeStart(BaseModel):
 
 
 class ChallengeAnswer(BaseModel):
-    fact_id: int
-    question_type: QuestionType
+    question_id: int
     answer: str = Field(max_length=32)
     response_time_ms: int = Field(ge=0, le=3_600_000)
 
 
 class ChallengeSubmit(BaseModel):
-    user_id: int
-    tables: list[int] = Field(min_length=1)
+    session_id: str = Field(min_length=16, max_length=64)
     answers: list[ChallengeAnswer] = Field(min_length=1, max_length=100)
 
 
@@ -77,20 +88,3 @@ class CreatureUpdate(BaseModel):
 
 class CreatureCosmeticUpdate(BaseModel):
     selected_cosmetic: str = Field(min_length=1, max_length=64)
-
-
-class CreatureSessionComplete(BaseModel):
-    questions_completed: int = Field(ge=1, le=100)
-    mode: Literal["practice", "challenge"] = "practice"
-    first_attempt_correct: int = Field(default=0, ge=0, le=100)
-    second_attempt_correct: int = Field(default=0, ge=0, le=100)
-    practiced_weak_fact: bool = False
-    improved_fact_accuracy: bool = False
-    practiced_division: bool = False
-
-
-class QuestComplete(BaseModel):
-    questions_completed: int = Field(ge=1, le=100)
-    first_attempt_correct: int = Field(default=0, ge=0, le=100)
-    second_attempt_correct: int = Field(default=0, ge=0, le=100)
-    facts_practised: list[int] = Field(default_factory=list, max_length=100)

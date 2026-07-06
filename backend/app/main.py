@@ -1,18 +1,27 @@
+from __future__ import annotations
+
 import hashlib
 import csv
 import io
+import os
 import secrets
+import sqlite3
+import tempfile
 from collections import defaultdict
-from datetime import datetime, timezone
+from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 from random import choice
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import Response
+from starlette.background import BackgroundTask
+from starlette.responses import FileResponse
 from sqlalchemy import desc, func, inspect, select, text
 from sqlalchemy.orm import Session
 
 from .adaptive import (
+    as_aware_utc,
     choose_fact,
     heat_colour_accuracy,
     heat_colour_speed,
@@ -33,24 +42,49 @@ from .creatures import (
     unlock_cosmetics,
 )
 from .database import Base, SessionLocal, engine, get_db
-from .models import ChallengeAttempt, ChallengeSession, Fact, FactStat, QuestionAttempt, User
+from .models import (
+    AuthSession,
+    ChallengeAttempt,
+    ChallengeSession,
+    Fact,
+    FactStat,
+    LearningSession,
+    LearningSessionQuestion,
+    QuestionAttempt,
+    User,
+)
 from .models import TrainingQuest
-from .quests import APP_VERSION, ensure_available_quests, parse_fact_ids, quest_completion_is_valid, quest_payload, quest_questions
+from .quests import APP_VERSION, ensure_available_quests, quest_payload, quest_questions
 from .schemas import (
     ChallengeStart,
     ChallengeSubmit,
     CreatureCosmeticUpdate,
-    CreatureSessionComplete,
     CreatureUpdate,
+    LoginRequest,
     PracticeAnswer,
-    QuestComplete,
+    PracticeQuestionRequest,
+    PracticeStart,
     TablesRequest,
     UserAdminUpdate,
     UserCreate,
 )
 from .seed import seed_facts
 
-app = FastAPI(title="Recall Forge API")
+SESSION_COOKIE = "recall_forge_session"
+SESSION_DAYS = 30
+COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    Base.metadata.create_all(bind=engine)
+    migrate_user_creature_columns()
+    with SessionLocal() as db:
+        seed_facts(db)
+    yield
+
+
+app = FastAPI(title="Recall Forge API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -59,14 +93,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.on_event("startup")
-def startup() -> None:
-    Base.metadata.create_all(bind=engine)
-    migrate_user_creature_columns()
-    with SessionLocal() as db:
-        seed_facts(db)
 
 
 def migrate_user_creature_columns() -> None:
@@ -113,11 +139,33 @@ def get_user(db: Session, user_id: int) -> User:
     return user
 
 
-def require_admin(db: Session, user_id: int) -> User:
-    user = get_user(db, user_id)
-    if not user.is_admin:
-        raise HTTPException(status_code=403, detail="Admin profile required")
-    return user
+def token_digest(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def authenticated_user(request: Request, db: Session = Depends(get_db)) -> User:
+    token = request.cookies.get(SESSION_COOKIE)
+    if not token:
+        raise HTTPException(status_code=401, detail="Login required")
+    session = db.scalar(select(AuthSession).where(AuthSession.token_hash == token_digest(token)))
+    if not session or as_aware_utc(session.expires_at) <= datetime.now(timezone.utc):
+        if session:
+            db.delete(session)
+            db.commit()
+        raise HTTPException(status_code=401, detail="Login expired")
+    return get_user(db, session.user_id)
+
+
+def authorize_profile(current_user: User, user_id: int) -> User:
+    if current_user.id != user_id and not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Profile access denied")
+    return current_user
+
+
+def authorize_admin(current_user: User, admin_user_id: int) -> User:
+    if current_user.id != admin_user_id or not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin login required")
+    return current_user
 
 
 def set_user_password(user: User, password: str | None) -> None:
@@ -127,10 +175,25 @@ def set_user_password(user: User, password: str | None) -> None:
         user.password_updated_at = None
         return
     salt = secrets.token_hex(12)
-    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 120_000).hex()
+    iterations = 600_000
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), iterations).hex()
     user.password_salt = salt
-    user.password_hash = digest
+    user.password_hash = f"pbkdf2_sha256${iterations}${salt}${digest}"
     user.password_updated_at = datetime.now(timezone.utc)
+
+
+def password_matches(user: User, password: str) -> bool:
+    if not user.password_hash or not user.password_salt:
+        return password == ""
+    if user.password_hash.startswith("pbkdf2_sha256$"):
+        try:
+            _, iterations, salt, expected = user.password_hash.split("$", 3)
+            digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), int(iterations)).hex()
+            return secrets.compare_digest(digest, expected)
+        except (TypeError, ValueError):
+            return False
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), user.password_salt.encode("utf-8"), 120_000).hex()
+    return secrets.compare_digest(digest, user.password_hash)
 
 
 def user_payload(user: User) -> dict:
@@ -150,9 +213,12 @@ def create_local_user(db: Session, payload: UserCreate, allow_admin: bool) -> Us
         raise HTTPException(status_code=400, detail="Name is required")
     existing = db.scalar(select(User).where(User.name == name))
     if existing:
-        return existing
+        raise HTTPException(status_code=400, detail="Name already exists")
     has_users = db.scalar(select(User.id).limit(1)) is not None
-    user = User(name=name, is_admin=not has_users or (allow_admin and payload.is_admin))
+    is_admin = not has_users or (allow_admin and payload.is_admin)
+    if is_admin and len(payload.password or "") < 4:
+        raise HTTPException(status_code=400, detail="Admin passcodes must be at least 4 characters")
+    user = User(name=name, is_admin=is_admin)
     set_user_password(user, payload.password if allow_admin or not has_users else None)
     db.add(user)
     db.commit()
@@ -167,6 +233,23 @@ def facts_for_tables(db: Session, tables: list[int]) -> list[Fact]:
     return list(db.scalars(select(Fact).where(Fact.a.in_(clean_tables))).all())
 
 
+def get_learning_session(db: Session, session_id: str, current_user: User) -> LearningSession:
+    learning_session = db.get(LearningSession, session_id)
+    if not learning_session:
+        raise HTTPException(status_code=404, detail="Learning session not found")
+    authorize_profile(current_user, learning_session.user_id)
+    return learning_session
+
+
+def learning_question_payload(question: LearningSessionQuestion) -> dict:
+    return {
+        "question_id": question.id,
+        "fact_id": question.fact_id,
+        "question_type": question.question_type,
+        "prompt": question.prompt,
+    }
+
+
 def recent_attempts_by_fact(db: Session, user_id: int, limit: int = 800) -> dict[int, list[QuestionAttempt]]:
     attempts = db.scalars(
         select(QuestionAttempt).where(QuestionAttempt.user_id == user_id).order_by(desc(QuestionAttempt.created_at)).limit(limit)
@@ -179,6 +262,7 @@ def recent_attempts_by_fact(db: Session, user_id: int, limit: int = 800) -> dict
 
 
 def reset_user_progress(db: Session, user: User) -> None:
+    db.query(LearningSession).filter(LearningSession.user_id == user.id).delete(synchronize_session=False)
     challenge_ids = db.scalars(select(ChallengeSession.id).where(ChallengeSession.user_id == user.id)).all()
     if challenge_ids:
         db.query(ChallengeAttempt).filter(ChallengeAttempt.session_id.in_(challenge_ids)).delete(synchronize_session=False)
@@ -259,6 +343,44 @@ def version() -> dict:
     return {"name": "Recall Forge", "version": APP_VERSION}
 
 
+@app.post("/auth/login")
+def login(payload: LoginRequest, response: Response, db: Session = Depends(get_db)) -> dict:
+    user = get_user(db, payload.user_id)
+    if not password_matches(user, payload.password):
+        raise HTTPException(status_code=401, detail="Incorrect passcode")
+    token = secrets.token_urlsafe(32)
+    expires_at = datetime.now(timezone.utc) + timedelta(days=SESSION_DAYS)
+    db.add(AuthSession(user_id=user.id, token_hash=token_digest(token), expires_at=expires_at))
+    db.commit()
+    response.set_cookie(
+        key=SESSION_COOKIE,
+        value=token,
+        max_age=SESSION_DAYS * 24 * 60 * 60,
+        httponly=True,
+        secure=COOKIE_SECURE,
+        samesite="strict",
+        path="/",
+    )
+    return user_payload(user)
+
+
+@app.post("/auth/logout")
+def logout(request: Request, response: Response, db: Session = Depends(get_db)) -> dict:
+    token = request.cookies.get(SESSION_COOKIE)
+    if token:
+        session = db.scalar(select(AuthSession).where(AuthSession.token_hash == token_digest(token)))
+        if session:
+            db.delete(session)
+            db.commit()
+    response.delete_cookie(SESSION_COOKIE, path="/", samesite="strict")
+    return {"logged_out": True}
+
+
+@app.get("/auth/me")
+def auth_me(current_user: User = Depends(authenticated_user)) -> dict:
+    return user_payload(current_user)
+
+
 @app.get("/users")
 def list_users(db: Session = Depends(get_db)) -> list[dict]:
     users = db.scalars(select(User).order_by(User.name)).all()
@@ -266,14 +388,19 @@ def list_users(db: Session = Depends(get_db)) -> list[dict]:
 
 
 @app.post("/users")
-def create_user(payload: UserCreate, db: Session = Depends(get_db)) -> dict:
+def create_user(payload: UserCreate, request: Request, db: Session = Depends(get_db)) -> dict:
+    has_users = db.scalar(select(User.id).limit(1)) is not None
+    if has_users:
+        current_user = authenticated_user(request, db)
+        if not current_user.is_admin:
+            raise HTTPException(status_code=403, detail="Admin login required")
     user = create_local_user(db, payload, allow_admin=False)
     return user_payload(user)
 
 
 @app.get("/admin/{admin_user_id}/users")
-def admin_list_users(admin_user_id: int, db: Session = Depends(get_db)) -> list[dict]:
-    require_admin(db, admin_user_id)
+def admin_list_users(admin_user_id: int, db: Session = Depends(get_db), current_user: User = Depends(authenticated_user)) -> list[dict]:
+    authorize_admin(current_user, admin_user_id)
     users = db.scalars(select(User).order_by(User.created_at, User.id)).all()
     return [
         {
@@ -288,15 +415,15 @@ def admin_list_users(admin_user_id: int, db: Session = Depends(get_db)) -> list[
 
 
 @app.post("/admin/{admin_user_id}/users")
-def admin_create_user(admin_user_id: int, payload: UserCreate, db: Session = Depends(get_db)) -> dict:
-    require_admin(db, admin_user_id)
+def admin_create_user(admin_user_id: int, payload: UserCreate, db: Session = Depends(get_db), current_user: User = Depends(authenticated_user)) -> dict:
+    authorize_admin(current_user, admin_user_id)
     user = create_local_user(db, payload, allow_admin=True)
     return user_payload(user)
 
 
 @app.patch("/admin/{admin_user_id}/users/{target_user_id}")
-def admin_update_user(admin_user_id: int, target_user_id: int, payload: UserAdminUpdate, db: Session = Depends(get_db)) -> dict:
-    require_admin(db, admin_user_id)
+def admin_update_user(admin_user_id: int, target_user_id: int, payload: UserAdminUpdate, db: Session = Depends(get_db), current_user: User = Depends(authenticated_user)) -> dict:
+    authorize_admin(current_user, admin_user_id)
     user = get_user(db, target_user_id)
     if payload.name is not None:
         new_name = payload.name.strip()
@@ -311,17 +438,22 @@ def admin_update_user(admin_user_id: int, target_user_id: int, payload: UserAdmi
             admin_count = db.scalar(select(func.count()).select_from(User).where(User.is_admin == True))  # noqa: E712
             if admin_count and admin_count <= 1:
                 raise HTTPException(status_code=400, detail="At least one admin is required")
+        if payload.is_admin and not user.password_hash and len(payload.password or "") < 4:
+            raise HTTPException(status_code=400, detail="Set a passcode before making this profile an admin")
         user.is_admin = payload.is_admin
     if payload.password is not None:
+        if user.is_admin and len(payload.password) < 4:
+            raise HTTPException(status_code=400, detail="Admin passcodes must be at least 4 characters")
         set_user_password(user, payload.password)
+        db.query(AuthSession).filter(AuthSession.user_id == user.id).delete(synchronize_session=False)
     db.commit()
     db.refresh(user)
     return user_payload(user)
 
 
 @app.post("/admin/{admin_user_id}/users/{target_user_id}/reset-progress")
-def admin_reset_progress(admin_user_id: int, target_user_id: int, db: Session = Depends(get_db)) -> dict:
-    require_admin(db, admin_user_id)
+def admin_reset_progress(admin_user_id: int, target_user_id: int, db: Session = Depends(get_db), current_user: User = Depends(authenticated_user)) -> dict:
+    authorize_admin(current_user, admin_user_id)
     user = get_user(db, target_user_id)
     reset_user_progress(db, user)
     db.commit()
@@ -330,8 +462,8 @@ def admin_reset_progress(admin_user_id: int, target_user_id: int, db: Session = 
 
 
 @app.delete("/admin/{admin_user_id}/users/{target_user_id}")
-def admin_delete_user(admin_user_id: int, target_user_id: int, db: Session = Depends(get_db)) -> dict:
-    require_admin(db, admin_user_id)
+def admin_delete_user(admin_user_id: int, target_user_id: int, db: Session = Depends(get_db), current_user: User = Depends(authenticated_user)) -> dict:
+    authorize_admin(current_user, admin_user_id)
     if admin_user_id == target_user_id:
         raise HTTPException(status_code=400, detail="Admins cannot delete the active admin profile")
     user = get_user(db, target_user_id)
@@ -346,122 +478,30 @@ def admin_delete_user(admin_user_id: int, target_user_id: int, db: Session = Dep
 
 
 @app.get("/admin/{admin_user_id}/backup")
-def admin_backup(admin_user_id: int, db: Session = Depends(get_db)) -> JSONResponse:
-    require_admin(db, admin_user_id)
-    users = db.scalars(select(User).order_by(User.id)).all()
-    facts = db.scalars(select(Fact).order_by(Fact.id)).all()
-    stats = db.scalars(select(FactStat).order_by(FactStat.user_id, FactStat.fact_id)).all()
-    attempts = db.scalars(select(QuestionAttempt).order_by(QuestionAttempt.created_at)).all()
-    challenges = db.scalars(select(ChallengeSession).order_by(ChallengeSession.created_at)).all()
-    challenge_attempts = db.scalars(select(ChallengeAttempt).order_by(ChallengeAttempt.created_at)).all()
-    quests = db.scalars(select(TrainingQuest).order_by(TrainingQuest.generated_at)).all()
-    payload = {
-        "exported_at": datetime.now(timezone.utc).isoformat(),
-        "app": {"name": "Recall Forge", "version": APP_VERSION},
-        "users": [
-            {
-                **user_payload(user),
-                "created_at": user.created_at.isoformat(),
-                "energy": decayed_energy(user),
-                "last_practised_at": user.last_practised_at.isoformat() if user.last_practised_at else None,
-                "total_questions_answered": user.total_questions_answered,
-                "total_sessions_completed": user.total_sessions_completed,
-                "xp": user.xp,
-                "level": user.level,
-                "stage": user.stage,
-                "unlocked_cosmetics": user.unlocked_cosmetics,
-                "selected_cosmetic": user.selected_cosmetic,
-                "weekly_practice_days": user.weekly_practice_days,
-            }
-            for user in users
-        ],
-        "facts": [{"id": fact.id, "a": fact.a, "b": fact.b, "product": fact.product} for fact in facts],
-        "fact_stats": [
-            {
-                "user_id": stat.user_id,
-                "fact_id": stat.fact_id,
-                "correct_count": stat.correct_count,
-                "incorrect_count": stat.incorrect_count,
-                "first_attempt_correct": stat.first_attempt_correct,
-                "first_attempt_total": stat.first_attempt_total,
-                "second_attempt_correct": stat.second_attempt_correct,
-                "second_attempt_total": stat.second_attempt_total,
-                "total_response_time_ms": stat.total_response_time_ms,
-                "response_count": stat.response_count,
-                "current_streak": stat.current_streak,
-                "last_seen": stat.last_seen.isoformat() if stat.last_seen else None,
-                "last_failed_at": stat.last_failed_at.isoformat() if stat.last_failed_at else None,
-            }
-            for stat in stats
-        ],
-        "question_attempts": [
-            {
-                "user_id": attempt.user_id,
-                "fact_id": attempt.fact_id,
-                "question_type": attempt.question_type,
-                "prompt": attempt.prompt,
-                "answer_given": attempt.answer_given,
-                "correct_answer": attempt.correct_answer,
-                "is_correct": attempt.is_correct,
-                "attempt_number": attempt.attempt_number,
-                "response_time_ms": attempt.response_time_ms,
-                "mode": attempt.mode,
-                "created_at": attempt.created_at.isoformat(),
-            }
-            for attempt in attempts
-        ],
-        "challenge_sessions": [
-            {
-                "id": session.id,
-                "user_id": session.user_id,
-                "question_count": session.question_count,
-                "selected_tables": session.selected_tables,
-                "total_time_ms": session.total_time_ms,
-                "correct_count": session.correct_count,
-                "created_at": session.created_at.isoformat(),
-            }
-            for session in challenges
-        ],
-        "challenge_attempts": [
-            {
-                "session_id": attempt.session_id,
-                "fact_id": attempt.fact_id,
-                "question_type": attempt.question_type,
-                "prompt": attempt.prompt,
-                "answer_given": attempt.answer_given,
-                "correct_answer": attempt.correct_answer,
-                "is_correct": attempt.is_correct,
-                "response_time_ms": attempt.response_time_ms,
-                "created_at": attempt.created_at.isoformat(),
-            }
-            for attempt in challenge_attempts
-        ],
-        "training_quests": [
-            {
-                "user_id": quest.user_id,
-                "quest_key": quest.quest_key,
-                "quest_type": quest.quest_type,
-                "title": quest.title,
-                "description": quest.description,
-                "target_fact_ids": quest.target_fact_ids,
-                "question_count": quest.question_count,
-                "reward_xp": quest.reward_xp,
-                "status": quest.status,
-                "generated_at": quest.generated_at.isoformat(),
-                "completed_at": quest.completed_at.isoformat() if quest.completed_at else None,
-            }
-            for quest in quests
-        ],
-    }
-    return JSONResponse(
-        payload,
-        headers={"Content-Disposition": 'attachment; filename="recall-forge-backup.json"'},
+def admin_backup(admin_user_id: int, db: Session = Depends(get_db), current_user: User = Depends(authenticated_user)) -> Response:
+    authorize_admin(current_user, admin_user_id)
+    temporary = tempfile.NamedTemporaryFile(prefix="recall-forge-", suffix=".db", dir="/tmp", delete=False)
+    temporary_path = temporary.name
+    temporary.close()
+    source = engine.raw_connection()
+    destination = sqlite3.connect(temporary_path)
+    try:
+        source.driver_connection.backup(destination)
+    finally:
+        destination.close()
+        source.close()
+    return FileResponse(
+        temporary_path,
+        filename="recall-forge-backup.db",
+        media_type="application/vnd.sqlite3",
+        background=BackgroundTask(os.unlink, temporary_path),
     )
 
 
+
 @app.get("/admin/{admin_user_id}/progress.csv")
-def admin_progress_csv(admin_user_id: int, db: Session = Depends(get_db)) -> Response:
-    require_admin(db, admin_user_id)
+def admin_progress_csv(admin_user_id: int, db: Session = Depends(get_db), current_user: User = Depends(authenticated_user)) -> Response:
+    authorize_admin(current_user, admin_user_id)
     rows = db.execute(
         text(
             """
@@ -533,13 +573,15 @@ def creature_types() -> dict:
 
 
 @app.get("/users/{user_id}/creature")
-def get_creature(user_id: int, db: Session = Depends(get_db)) -> dict:
+def get_creature(user_id: int, db: Session = Depends(get_db), current_user: User = Depends(authenticated_user)) -> dict:
+    authorize_profile(current_user, user_id)
     user = get_user(db, user_id)
     return creature_payload(user)
 
 
 @app.put("/users/{user_id}/creature")
-def update_creature(user_id: int, payload: CreatureUpdate, db: Session = Depends(get_db)) -> dict:
+def update_creature(user_id: int, payload: CreatureUpdate, db: Session = Depends(get_db), current_user: User = Depends(authenticated_user)) -> dict:
+    authorize_profile(current_user, user_id)
     user = get_user(db, user_id)
     user.creature_type = payload.creature_type
     user.creature_name = payload.creature_name.strip()
@@ -549,7 +591,8 @@ def update_creature(user_id: int, payload: CreatureUpdate, db: Session = Depends
 
 
 @app.put("/users/{user_id}/creature/cosmetic")
-def update_creature_cosmetic(user_id: int, payload: CreatureCosmeticUpdate, db: Session = Depends(get_db)) -> dict:
+def update_creature_cosmetic(user_id: int, payload: CreatureCosmeticUpdate, db: Session = Depends(get_db), current_user: User = Depends(authenticated_user)) -> dict:
+    authorize_profile(current_user, user_id)
     user = get_user(db, user_id)
     if payload.selected_cosmetic not in cosmetic_list(user):
         raise HTTPException(status_code=400, detail="Cosmetic is not unlocked yet")
@@ -559,32 +602,38 @@ def update_creature_cosmetic(user_id: int, payload: CreatureCosmeticUpdate, db: 
     return creature_payload(user)
 
 
-@app.post("/users/{user_id}/creature/session-complete")
-def complete_creature_session(user_id: int, payload: CreatureSessionComplete, db: Session = Depends(get_db)) -> dict:
-    user = get_user(db, user_id)
+def award_learning_session(db: Session, learning_session: LearningSession, user: User) -> dict:
+    if learning_session.reward_applied:
+        return creature_payload(user)
     now = datetime.now(timezone.utc)
     previous_level, previous_stage, _, _ = sync_level_and_stage(user)
-    energy_gained = energy_gain_for_questions(payload.questions_completed)
+    energy_gained = energy_gain_for_questions(learning_session.completed_questions)
     current_energy = decayed_energy(user, now)
     energy_overflow_xp = max((current_energy + energy_gained) - 100, 0)
     weekly_days_completed, weekly_goal_completed = add_weekly_practice_day(user, now)
     xp_gained, reward_reasons = session_rewards(
-        mode=payload.mode,
-        questions_completed=payload.questions_completed,
-        first_attempt_correct=payload.first_attempt_correct,
-        second_attempt_correct=payload.second_attempt_correct,
-        practiced_weak_fact=payload.practiced_weak_fact,
-        improved_fact_accuracy=payload.improved_fact_accuracy,
-        practiced_division=payload.practiced_division,
+        mode="challenge" if learning_session.mode == "challenge" else "practice",
+        questions_completed=learning_session.completed_questions,
+        first_attempt_correct=learning_session.first_attempt_correct,
+        second_attempt_correct=learning_session.second_attempt_correct,
+        practiced_weak_fact=learning_session.practiced_weak_fact,
+        improved_fact_accuracy=learning_session.improved_fact_accuracy,
+        practiced_division=learning_session.practiced_division,
         weekly_goal_completed=weekly_goal_completed,
     )
+    quest = db.get(TrainingQuest, learning_session.quest_id) if learning_session.quest_id else None
+    if quest and quest.status != "completed":
+        quest.status = "completed"
+        quest.completed_at = now
+        xp_gained += quest.reward_xp
+        reward_reasons.append(f"{quest.title} +{quest.reward_xp} XP")
     if energy_overflow_xp:
         xp_gained += energy_overflow_xp
         reward_reasons.append(f"Full-energy training bonus +{energy_overflow_xp} XP")
     user.energy = min(100, current_energy + energy_gained)
     user.xp = (user.xp or 0) + xp_gained
     user.last_practised_at = now
-    user.total_questions_answered = (user.total_questions_answered or 0) + payload.questions_completed
+    user.total_questions_answered = (user.total_questions_answered or 0) + learning_session.completed_questions
     user.total_sessions_completed = (user.total_sessions_completed or 0) + 1
     _, _, new_level, new_stage = sync_level_and_stage(user)
     cosmetic_keys = []
@@ -596,11 +645,11 @@ def complete_creature_session(user_id: int, payload: CreatureSessionComplete, db
         cosmetic_keys.append("number-stones")
     if weekly_goal_completed or weekly_days_completed >= 4:
         cosmetic_keys.append("rhythm-stars")
-    if payload.improved_fact_accuracy or payload.practiced_weak_fact:
+    if learning_session.improved_fact_accuracy or learning_session.practiced_weak_fact:
         cosmetic_keys.append("growth-trail")
-    if payload.mode == "challenge":
+    if learning_session.mode == "challenge":
         cosmetic_keys.append("challenge-crest")
-    if payload.practiced_division:
+    if learning_session.practiced_division:
         cosmetic_keys.append("division-stones")
     new_unlocks = unlock_cosmetics(user, cosmetic_keys)
     stage_message = ""
@@ -608,8 +657,9 @@ def complete_creature_session(user_id: int, payload: CreatureSessionComplete, db
         stage_message = f"{user.creature_name} has reached the {new_stage} stage."
     elif new_level > previous_level:
         stage_message = f"{user.creature_name} grew stronger."
-    db.commit()
-    db.refresh(user)
+    learning_session.status = "completed"
+    learning_session.completed_at = now
+    learning_session.reward_applied = True
     return creature_payload(
         user,
         energy_gained=energy_gained,
@@ -623,7 +673,8 @@ def complete_creature_session(user_id: int, payload: CreatureSessionComplete, db
 
 
 @app.get("/users/{user_id}/quests")
-def list_training_quests(user_id: int, db: Session = Depends(get_db)) -> dict:
+def list_training_quests(user_id: int, db: Session = Depends(get_db), current_user: User = Depends(authenticated_user)) -> dict:
+    authorize_profile(current_user, user_id)
     get_user(db, user_id)
     facts = db.scalars(select(Fact).order_by(Fact.a, Fact.b)).all()
     stats = db.scalars(select(FactStat).where(FactStat.user_id == user_id)).all()
@@ -641,57 +692,57 @@ def list_training_quests(user_id: int, db: Session = Depends(get_db)) -> dict:
 
 
 @app.post("/users/{user_id}/quests/{quest_id}/start")
-def start_training_quest(user_id: int, quest_id: int, db: Session = Depends(get_db)) -> dict:
+def start_training_quest(user_id: int, quest_id: int, db: Session = Depends(get_db), current_user: User = Depends(authenticated_user)) -> dict:
+    authorize_profile(current_user, user_id)
     get_user(db, user_id)
     quest = db.get(TrainingQuest, quest_id)
     if not quest or quest.user_id != user_id:
         raise HTTPException(status_code=404, detail="Quest not found")
+    if quest.status == "completed":
+        raise HTTPException(status_code=409, detail="Quest is already complete")
     facts = db.scalars(select(Fact)).all()
     questions = quest_questions(quest, {fact.id: fact for fact in facts})
     if not questions:
         raise HTTPException(status_code=400, detail="Quest has no facts to practise")
-    return {"quest": quest_payload(quest), "questions": questions}
-
-
-@app.post("/users/{user_id}/quests/{quest_id}/complete")
-def complete_training_quest(user_id: int, quest_id: int, payload: QuestComplete, db: Session = Depends(get_db)) -> dict:
-    user = get_user(db, user_id)
-    quest = db.get(TrainingQuest, quest_id)
-    if not quest or quest.user_id != user_id:
-        raise HTTPException(status_code=404, detail="Quest not found")
-    if quest.status == "completed":
-        return {"quest": quest_payload(quest), "creature": creature_payload(user), "facts_practised": []}
-    if not quest_completion_is_valid(quest, payload.questions_completed, payload.facts_practised):
-        raise HTTPException(status_code=400, detail="Quest completion does not match the quest questions")
-
-    previous_level, previous_stage, _, _ = sync_level_and_stage(user)
-    quest.status = "completed"
-    quest.completed_at = datetime.now(timezone.utc)
-    user.xp = (user.xp or 0) + quest.reward_xp
-    _, _, new_level, new_stage = sync_level_and_stage(user)
-    stage_message = ""
-    if new_stage != previous_stage:
-        stage_message = f"{user.creature_name} has reached the {new_stage} stage."
-    elif new_level > previous_level:
-        stage_message = f"{user.creature_name} grew stronger."
+    prior_sessions = db.scalars(
+        select(LearningSession).where(
+            LearningSession.user_id == user_id,
+            LearningSession.quest_id == quest.id,
+            LearningSession.status == "active",
+        )
+    ).all()
+    for prior in prior_sessions:
+        prior.status = "abandoned"
+    selected_tables = sorted({question["a"] for question in questions})
+    learning_session = LearningSession(
+        id=secrets.token_urlsafe(24),
+        user_id=user_id,
+        mode="quest",
+        question_mode="mixed",
+        selected_tables=",".join(str(table) for table in selected_tables),
+        expected_questions=len(questions),
+        quest_id=quest.id,
+    )
+    db.add(learning_session)
+    db.flush()
+    records = []
+    for position, question in enumerate(questions):
+        record = LearningSessionQuestion(
+            session_id=learning_session.id,
+            position=position,
+            fact_id=question["fact_id"],
+            question_type=question["question_type"],
+            prompt=question["prompt"],
+        )
+        db.add(record)
+        records.append(record)
     db.commit()
-    db.refresh(user)
-    db.refresh(quest)
-
-    facts = db.scalars(select(Fact).where(Fact.id.in_(parse_fact_ids(quest.target_fact_ids)))).all()
-    fact_labels = [f"{fact.a} x {fact.b}" for fact in facts[:6]]
+    for record in records:
+        db.refresh(record)
     return {
+        "session_id": learning_session.id,
         "quest": quest_payload(quest),
-        "creature": creature_payload(
-            user,
-            xp_gained=quest.reward_xp,
-            reward_reasons=[f"{quest.title} +{quest.reward_xp} XP"],
-            stage_message=stage_message,
-            evolution_from=previous_stage if new_stage != previous_stage else None,
-            evolution_to=new_stage if new_stage != previous_stage else None,
-        ),
-        "facts_practised": fact_labels,
-        "learning_message": "You gave these facts focused practice. That helps them become easier to remember next time.",
+        "questions": [learning_question_payload(record) for record in records],
     }
 
 
@@ -701,87 +752,193 @@ def list_facts(db: Session = Depends(get_db)) -> list[dict]:
     return [{"id": fact.id, "a": fact.a, "b": fact.b, "product": fact.product} for fact in facts]
 
 
+@app.post("/practice/start")
+def start_practice(payload: PracticeStart, db: Session = Depends(get_db), current_user: User = Depends(authenticated_user)) -> dict:
+    authorize_profile(current_user, payload.user_id)
+    facts_for_tables(db, payload.tables)
+    learning_session = LearningSession(
+        id=secrets.token_urlsafe(24),
+        user_id=payload.user_id,
+        mode="practice",
+        question_mode=payload.question_mode,
+        selected_tables=",".join(str(table) for table in sorted(set(payload.tables))),
+        expected_questions=payload.question_count,
+    )
+    db.add(learning_session)
+    db.commit()
+    return {"session_id": learning_session.id, "question_count": learning_session.expected_questions}
+
+
 @app.post("/practice/question")
-def next_practice_question(payload: TablesRequest, db: Session = Depends(get_db)) -> dict:
-    get_user(db, payload.user_id)
-    facts = facts_for_tables(db, payload.tables)
-    stats = db.scalars(select(FactStat).where(FactStat.user_id == payload.user_id)).all()
+def next_practice_question(payload: PracticeQuestionRequest, db: Session = Depends(get_db), current_user: User = Depends(authenticated_user)) -> dict:
+    learning_session = get_learning_session(db, payload.session_id, current_user)
+    if learning_session.status != "active":
+        raise HTTPException(status_code=409, detail="Learning session is already complete")
+    existing = db.scalar(
+        select(LearningSessionQuestion)
+        .where(LearningSessionQuestion.session_id == learning_session.id, LearningSessionQuestion.completed == False)  # noqa: E712
+        .order_by(LearningSessionQuestion.position)
+    )
+    if existing:
+        return learning_question_payload(existing)
+    if learning_session.completed_questions >= learning_session.expected_questions:
+        raise HTTPException(status_code=409, detail="No questions remain")
+    tables = [int(table) for table in learning_session.selected_tables.split(",") if table]
+    facts = facts_for_tables(db, tables)
+    stats = db.scalars(select(FactStat).where(FactStat.user_id == learning_session.user_id)).all()
     stats_by_fact_id = {stat.fact_id: stat for stat in stats}
-    recent_by_fact_id = recent_attempts_by_fact(db, payload.user_id)
+    recent_by_fact_id = recent_attempts_by_fact(db, learning_session.user_id)
     fact = choose_fact(facts, stats_by_fact_id, recent_by_fact_id)
-    question_type = choice(question_types_for_mode(payload.question_mode, payload.tables))
+    question_type = choice(question_types_for_mode(learning_session.question_mode, tables))
     prompt, _ = question_for_fact(fact, question_type)
-    return {
-        "fact_id": fact.id,
-        "a": fact.a,
-        "b": fact.b,
-        "question_type": question_type,
-        "prompt": prompt,
-        "priority_score": round(priority_score(stats_by_fact_id.get(fact.id), recent_attempts=recent_by_fact_id.get(fact.id, [])), 3),
-    }
+    question = LearningSessionQuestion(
+        session_id=learning_session.id,
+        position=learning_session.completed_questions,
+        fact_id=fact.id,
+        question_type=question_type,
+        prompt=prompt,
+    )
+    db.add(question)
+    db.commit()
+    db.refresh(question)
+    return learning_question_payload(question)
 
 
 @app.post("/practice/answer")
-def answer_practice_question(payload: PracticeAnswer, db: Session = Depends(get_db)) -> dict:
-    get_user(db, payload.user_id)
-    fact = db.get(Fact, payload.fact_id)
+def answer_practice_question(payload: PracticeAnswer, db: Session = Depends(get_db), current_user: User = Depends(authenticated_user)) -> dict:
+    learning_session = get_learning_session(db, payload.session_id, current_user)
+    if learning_session.status != "active":
+        raise HTTPException(status_code=409, detail="Learning session is already complete")
+    question = db.get(LearningSessionQuestion, payload.question_id)
+    if not question or question.session_id != learning_session.id or question.completed:
+        raise HTTPException(status_code=409, detail="Question is not active")
+    if question.attempts >= 2:
+        raise HTTPException(status_code=409, detail="Question already has two attempts")
+    fact = db.get(Fact, question.fact_id)
     if not fact:
         raise HTTPException(status_code=404, detail="Fact not found")
-
-    prompt, correct_answer = question_for_fact(fact, payload.question_type)
+    attempt_number = question.attempts + 1
+    prompt, correct_answer = question_for_fact(fact, question.question_type)
     normalized = normalize_answer(payload.answer)
     is_correct = normalized == correct_answer
     attempt = QuestionAttempt(
-        user_id=payload.user_id,
+        user_id=learning_session.user_id,
         fact_id=fact.id,
-        question_type=payload.question_type,
+        question_type=question.question_type,
         prompt=prompt,
         answer_given=payload.answer,
         correct_answer=correct_answer,
         is_correct=is_correct,
-        attempt_number=payload.attempt_number,
+        attempt_number=attempt_number,
         response_time_ms=payload.response_time_ms,
-        mode="practice",
+        mode="quest" if learning_session.mode == "quest" else "practice",
     )
     db.add(attempt)
-    stat = get_or_create_stat(db, payload.user_id, fact.id)
-    learning_event = learning_event_for_stat(stat, is_correct, payload.question_type)
-    record_stat(stat, is_correct, payload.attempt_number, payload.response_time_ms)
+    stat = get_or_create_stat(db, learning_session.user_id, fact.id)
+    learning_event = learning_event_for_stat(stat, is_correct, question.question_type)
+    record_stat(stat, is_correct, attempt_number, payload.response_time_ms)
+    question.attempts = attempt_number
+    question_complete = is_correct or attempt_number == 2
+    creature = None
+    quest_result = None
+    if question_complete:
+        question.completed = True
+        learning_session.completed_questions += 1
+        learning_session.first_attempt_correct += int(is_correct and attempt_number == 1)
+        learning_session.second_attempt_correct += int(is_correct and attempt_number == 2)
+    learning_session.practiced_weak_fact = learning_session.practiced_weak_fact or learning_event["practiced_weak_fact"]
+    learning_session.improved_fact_accuracy = learning_session.improved_fact_accuracy or learning_event["improved_fact_accuracy"]
+    learning_session.practiced_division = learning_session.practiced_division or learning_event["practiced_division"]
+    if question_complete and learning_session.completed_questions >= learning_session.expected_questions:
+        user = get_user(db, learning_session.user_id)
+        creature = award_learning_session(db, learning_session, user)
+        if learning_session.quest_id:
+            quest = db.get(TrainingQuest, learning_session.quest_id)
+            practised_fact_ids = list(
+                db.scalars(
+                    select(LearningSessionQuestion.fact_id)
+                    .where(LearningSessionQuestion.session_id == learning_session.id)
+                    .distinct()
+                ).all()
+            )
+            facts = db.scalars(select(Fact).where(Fact.id.in_(practised_fact_ids))).all()
+            quest_result = {
+                "quest": quest_payload(quest) if quest else None,
+                "creature": creature,
+                "facts_practised": [f"{item.a} x {item.b}" for item in facts[:6]],
+                "learning_message": "You gave these facts focused practice. That helps them become easier to remember next time.",
+            }
     db.commit()
-    return {"correct": is_correct, "correct_answer": correct_answer, "prompt": prompt, "learning_event": learning_event}
+    return {
+        "correct": is_correct,
+        "correct_answer": correct_answer,
+        "prompt": prompt,
+        "attempt_number": attempt_number,
+        "question_complete": question_complete,
+        "session_complete": learning_session.status == "completed",
+        "completed_questions": learning_session.completed_questions,
+        "creature": creature,
+        "quest_result": quest_result,
+        "learning_event": learning_event,
+    }
 
 
 @app.post("/challenge/start")
-def start_challenge(payload: ChallengeStart, db: Session = Depends(get_db)) -> dict:
+def start_challenge(payload: ChallengeStart, db: Session = Depends(get_db), current_user: User = Depends(authenticated_user)) -> dict:
+    authorize_profile(current_user, payload.user_id)
     get_user(db, payload.user_id)
     facts = facts_for_tables(db, payload.tables)
     stats = db.scalars(select(FactStat).where(FactStat.user_id == payload.user_id)).all()
     stats_by_fact_id = {stat.fact_id: stat for stat in stats}
     recent_by_fact_id = recent_attempts_by_fact(db, payload.user_id)
+    learning_session = LearningSession(
+        id=secrets.token_urlsafe(24),
+        user_id=payload.user_id,
+        mode="challenge",
+        question_mode=payload.question_mode,
+        selected_tables=",".join(str(table) for table in sorted(set(payload.tables))),
+        expected_questions=payload.question_count,
+    )
+    db.add(learning_session)
+    db.flush()
     questions = []
-    for _ in range(payload.question_count):
+    for position in range(payload.question_count):
         fact = choose_fact(facts, stats_by_fact_id, recent_by_fact_id)
         question_type = choice(question_types_for_mode(payload.question_mode, payload.tables))
         prompt, _ = question_for_fact(fact, question_type)
-        questions.append(
-            {
-                "fact_id": fact.id,
-                "a": fact.a,
-                "b": fact.b,
-                "question_type": question_type,
-                "prompt": prompt,
-            }
+        question = LearningSessionQuestion(
+            session_id=learning_session.id,
+            position=position,
+            fact_id=fact.id,
+            question_type=question_type,
+            prompt=prompt,
         )
-    return {"questions": questions}
+        db.add(question)
+        questions.append(question)
+    db.commit()
+    for question in questions:
+        db.refresh(question)
+    return {"session_id": learning_session.id, "questions": [learning_question_payload(question) for question in questions]}
 
 
 @app.post("/challenge/submit")
-def submit_challenge(payload: ChallengeSubmit, db: Session = Depends(get_db)) -> dict:
-    get_user(db, payload.user_id)
-    selected_tables = ",".join(str(table) for table in sorted(set(payload.tables)))
+def submit_challenge(payload: ChallengeSubmit, db: Session = Depends(get_db), current_user: User = Depends(authenticated_user)) -> dict:
+    learning_session = get_learning_session(db, payload.session_id, current_user)
+    if learning_session.mode != "challenge" or learning_session.status != "active":
+        raise HTTPException(status_code=409, detail="Challenge is not active")
+    questions = list(
+        db.scalars(
+            select(LearningSessionQuestion)
+            .where(LearningSessionQuestion.session_id == learning_session.id)
+            .order_by(LearningSessionQuestion.position)
+        ).all()
+    )
+    if len(payload.answers) != learning_session.expected_questions or [answer.question_id for answer in payload.answers] != [question.id for question in questions]:
+        raise HTTPException(status_code=400, detail="Challenge answers do not match the issued questions")
+    selected_tables = learning_session.selected_tables
     total_time = sum(answer.response_time_ms for answer in payload.answers)
     session = ChallengeSession(
-        user_id=payload.user_id,
+        user_id=learning_session.user_id,
         question_count=len(payload.answers),
         selected_tables=selected_tables,
         total_time_ms=total_time,
@@ -795,11 +952,11 @@ def submit_challenge(payload: ChallengeSubmit, db: Session = Depends(get_db)) ->
     practiced_weak_fact = False
     improved_fact_accuracy = False
     practiced_division = False
-    for answer in payload.answers:
-        fact = db.get(Fact, answer.fact_id)
+    for answer, question in zip(payload.answers, questions):
+        fact = db.get(Fact, question.fact_id)
         if not fact:
             raise HTTPException(status_code=404, detail="Fact not found")
-        prompt, correct_answer = question_for_fact(fact, answer.question_type)
+        prompt, correct_answer = question_for_fact(fact, question.question_type)
         is_correct = normalize_answer(answer.answer) == correct_answer
         correct_count += int(is_correct)
         first_attempt_correct += int(is_correct)
@@ -807,7 +964,7 @@ def submit_challenge(payload: ChallengeSubmit, db: Session = Depends(get_db)) ->
             ChallengeAttempt(
                 session_id=session.id,
                 fact_id=fact.id,
-                question_type=answer.question_type,
+                question_type=question.question_type,
                 prompt=prompt,
                 answer_given=answer.answer,
                 correct_answer=correct_answer,
@@ -817,9 +974,9 @@ def submit_challenge(payload: ChallengeSubmit, db: Session = Depends(get_db)) ->
         )
         db.add(
             QuestionAttempt(
-                user_id=payload.user_id,
+                user_id=learning_session.user_id,
                 fact_id=fact.id,
-                question_type=answer.question_type,
+                question_type=question.question_type,
                 prompt=prompt,
                 answer_given=answer.answer,
                 correct_answer=correct_answer,
@@ -829,12 +986,14 @@ def submit_challenge(payload: ChallengeSubmit, db: Session = Depends(get_db)) ->
                 mode="challenge",
             )
         )
-        stat = get_or_create_stat(db, payload.user_id, fact.id)
-        learning_event = learning_event_for_stat(stat, is_correct, answer.question_type)
+        stat = get_or_create_stat(db, learning_session.user_id, fact.id)
+        learning_event = learning_event_for_stat(stat, is_correct, question.question_type)
         practiced_weak_fact = practiced_weak_fact or learning_event["practiced_weak_fact"]
         improved_fact_accuracy = improved_fact_accuracy or learning_event["improved_fact_accuracy"]
         practiced_division = practiced_division or learning_event["practiced_division"]
         record_stat(stat, is_correct, 1, answer.response_time_ms)
+        question.attempts = 1
+        question.completed = True
         results.append(
             {
                 "prompt": prompt,
@@ -846,11 +1005,18 @@ def submit_challenge(payload: ChallengeSubmit, db: Session = Depends(get_db)) ->
         )
 
     session.correct_count = correct_count
+    learning_session.completed_questions = len(questions)
+    learning_session.first_attempt_correct = first_attempt_correct
+    learning_session.practiced_weak_fact = practiced_weak_fact
+    learning_session.improved_fact_accuracy = improved_fact_accuracy
+    learning_session.practiced_division = practiced_division
+    user = get_user(db, learning_session.user_id)
+    creature = award_learning_session(db, learning_session, user)
     db.commit()
 
     previous = db.scalars(
         select(ChallengeSession)
-        .where(ChallengeSession.user_id == payload.user_id, ChallengeSession.id != session.id)
+        .where(ChallengeSession.user_id == learning_session.user_id, ChallengeSession.id != session.id)
         .order_by(desc(ChallengeSession.created_at))
         .limit(10)
     ).all()
@@ -884,6 +1050,7 @@ def submit_challenge(payload: ChallengeSubmit, db: Session = Depends(get_db)) ->
         "personal_best_average_ms": min(previous_average_times) if previous_average_times else None,
         "recent_average_ms": round(sum(previous_average_times) / len(previous_average_times)) if previous_average_times else None,
         "beat_recent_average": bool(previous_average_times and current_average_time < (sum(previous_average_times) / len(previous_average_times))),
+        "creature": creature,
         "creature_events": {
             "first_attempt_correct": first_attempt_correct,
             "second_attempt_correct": 0,
@@ -895,7 +1062,8 @@ def submit_challenge(payload: ChallengeSubmit, db: Session = Depends(get_db)) ->
 
 
 @app.get("/dashboard/{user_id}")
-def dashboard(user_id: int, db: Session = Depends(get_db)) -> dict:
+def dashboard(user_id: int, db: Session = Depends(get_db), current_user: User = Depends(authenticated_user)) -> dict:
+    authorize_profile(current_user, user_id)
     get_user(db, user_id)
     facts = db.scalars(select(Fact).order_by(Fact.a, Fact.b)).all()
     stats = db.scalars(select(FactStat).where(FactStat.user_id == user_id)).all()

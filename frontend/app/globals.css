@@ -210,6 +210,50 @@ h2 {
   gap: 16px;
 }
 
+.loginScreen {
+  width: min(680px, 100%);
+  min-height: 420px;
+  display: grid;
+  align-content: center;
+  justify-self: center;
+  gap: 18px;
+  text-align: center;
+}
+
+.profileChoices {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.profileChoices button {
+  min-height: 88px;
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  background: #edf2f7;
+  color: var(--ink);
+  border: 2px solid transparent;
+}
+
+.profileChoices button.active {
+  border-color: var(--blue);
+  background: #dbeafe;
+}
+
+.profileChoices span {
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 800;
+}
+
+.loginForm {
+  width: min(420px, 100%);
+  display: grid;
+  justify-self: center;
+  gap: 10px;
+}
+
 .tabs {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -1210,6 +1254,22 @@ h2 {
   gap: 16px;
 }
 
+.dashboardTabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.dashboardTabs button {
+  background: #e7edf5;
+  color: var(--ink);
+}
+
+.dashboardTabs button.active {
+  background: var(--ink);
+  color: white;
+}
+
 .metricGrid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -1275,6 +1335,29 @@ h2 {
   color: white;
   font-weight: 900;
   border: 1px solid rgba(255, 255, 255, 0.35);
+}
+
+.heatColumnHeader {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.heatRowHeader {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+}
+
+.heatRowHeaderEnd {
+  position: static;
+}
+
+.heatCorner {
+  position: sticky;
+  left: 0;
+  top: 0;
+  z-index: 3;
 }
 
 .heatCell {
@@ -1581,6 +1664,14 @@ h2 {
     grid-template-columns: 1fr;
   }
 
+  .profileChoices {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboardTabs {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
   .tabs {
     display: none;
   }
@@ -1704,5 +1795,16 @@ h2 {
 
   .creatureInfo h2 {
     font-size: 2rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }

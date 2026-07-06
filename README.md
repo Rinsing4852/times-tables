@@ -1,6 +1,6 @@
 # Recall Forge
 
-Recall Forge is a self-hosted times tables practice app for local use. It is intentionally plain: local profiles, adaptive practice, smart training quests, challenge mode, heat maps, SQLite, no external login, no analytics, and no AI API. It also includes a light companion creature theme where practice gives the creature energy and XP while the learning engine stays focused on recall and spaced practice. Creatures now have type-specific evolution artwork, but they remain a calm maths companion rather than a needy care system.
+Recall Forge 0.5.0 is a self-hosted times tables practice app for local use. It is intentionally focused: authenticated local profiles, adaptive practice, smart training quests, challenge mode, heat maps, SQLite, no external accounts, no analytics, and no AI API. It also includes a light companion creature theme where practice gives the creature energy and XP while the learning engine stays focused on recall and spaced practice. Creatures have type-specific evolution artwork, but remain calm maths companions rather than a needy care system.
 
 ## Stack
 
@@ -35,7 +35,7 @@ The SQLite database is stored in the Docker volume `times-tables_backend-data`.
 
 ## Unraid / Dockge
 
-For Unraid with Dockge, use `compose.dockge.yml` as the stack compose file if the repo is cloned on the server. It is set up for LAN/Tailscale use:
+For Unraid with Dockge, use `compose.dockge.yml` from the cloned repository. Its relative build paths require the compose file, `backend`, and `frontend` to remain together in the repository root. It is set up for LAN/Tailscale use:
 
 - only the frontend port is exposed
 - the backend stays on the private Docker bridge network
@@ -67,13 +67,13 @@ The data directory can also be overridden with `TIMES_TABLES_DATA_DIR`. On Unrai
 
 ### Private GitHub Repo
 
-You do not need to create a GitHub release to update Unraid. Unraid/Dockge can build from the latest `main` branch as long as the server can read the private repo.
+You do not need to create a GitHub release to update Unraid. Pull the latest `main` branch into the existing private clone, then rebuild the stack.
 
 For a private repo, use one of these approaches:
 
 - Clone the repo onto Unraid with your GitHub credentials or a fine-grained token that has read access to this repo.
-- Or use GitHub remote build contexts in Dockge only if Dockge/Docker has credentials configured for the private repo.
-- Or keep the repo cloned locally on Unraid and use relative build contexts from inside the stack folder.
+- Keep the repo cloned locally on Unraid and run the Dockge compose file from that repository root.
+- GitHub remote build contexts are an alternative only when Dockge/Docker has credentials configured for the private repo; they are not used by the supplied compose file.
 
 If you previously could not find the repo at `/mnt/user/appdata/times-tables`, check where it actually lives:
 
@@ -151,6 +151,8 @@ If the app resets after redeploy, check that the data mount points to the persis
 
 Backend:
 
+Python 3.9 or newer is required.
+
 ```bash
 cd backend
 python3 -m venv .venv
@@ -175,7 +177,7 @@ BACKEND_INTERNAL_URL=http://localhost:8000
 
 ## Tests
 
-Backend adaptive selection tests:
+Backend unit and API integration tests:
 
 ```bash
 cd backend
@@ -189,9 +191,9 @@ cd frontend
 npm test
 ```
 
-## V1 Features
+## Current Features
 
-- Multiple local user profiles. The first profile created is the local admin profile.
+- Multiple authenticated local profiles. The first profile is the admin and requires a passcode of at least four characters.
 - Admin profiles can create other admins, rename profiles, reset passcodes, reset progress, and delete profiles.
 - A safe creature companion per profile with type, name, energy, XP, level, stage, weekly goal, cosmetic unlocks, and type-specific evolution artwork.
 - A positive evolution moment appears when a creature reaches a new growth stage.
@@ -218,9 +220,12 @@ Recent performance uses the latest attempts for each fact, so strong facts appea
 The backend auto-creates tables on startup and seeds multiplication facts from 2x2 through 12x12.
 
 - `users`
+- `auth_sessions`
 - `facts`
 - `question_attempts`
 - `fact_stats`
+- `learning_sessions`
+- `learning_session_questions`
 - `challenge_sessions`
 - `challenge_attempts`
 - `training_quests`
@@ -249,6 +254,9 @@ Creature state is stored on each local user profile:
 
 - `GET /users`
 - `POST /users`
+- `POST /auth/login`
+- `POST /auth/logout`
+- `GET /auth/me`
 - `GET /admin/{admin_user_id}/users`
 - `POST /admin/{admin_user_id}/users`
 - `PATCH /admin/{admin_user_id}/users/{target_user_id}`
@@ -262,10 +270,9 @@ Creature state is stored on each local user profile:
 - `GET /users/{user_id}/creature`
 - `PUT /users/{user_id}/creature`
 - `PUT /users/{user_id}/creature/cosmetic`
-- `POST /users/{user_id}/creature/session-complete`
 - `GET /users/{user_id}/quests`
 - `POST /users/{user_id}/quests/{quest_id}/start`
-- `POST /users/{user_id}/quests/{quest_id}/complete`
+- `POST /practice/start`
 - `POST /practice/question`
 - `POST /practice/answer`
 - `POST /challenge/start`
@@ -281,4 +288,8 @@ When accessed through the frontend, these same backend routes are available thro
 
 ## Notes
 
-Recall Forge is designed for a trusted local network or a single machine. It does not include authentication, remote accounts, or multi-device sync in V1.
+Recall Forge is designed for a trusted local network or Tailscale. Profile sessions use an HttpOnly, same-site cookie and server-side authorization; it does not provide internet-facing identity, password recovery email, or multi-device data sync. Existing profiles created before 0.5.0 may initially have a blank passcode, so set an admin passcode after upgrading. Set `COOKIE_SECURE=true` only when the app is served over HTTPS.
+
+Practice, quest, and challenge rewards are calculated from questions issued and recorded by the backend. Repeating a completion request cannot award the same session twice.
+
+The admin backup download is a consistent SQLite database snapshot. To restore it, stop the stack, replace the persistent `recall_forge.db` with the downloaded file, preserve ownership for UID/GID `1000:1000` on Unraid, and restart the stack.

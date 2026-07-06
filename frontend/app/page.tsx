@@ -1,6 +1,8 @@
 "use client";
 
 import { FormEvent, RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { NumberPad } from "../components/NumberPad";
+import { ProfileLogin } from "../components/ProfileLogin";
 import { TableSelector } from "../components/TableSelector";
 import { api } from "../lib/api";
 
@@ -38,7 +40,7 @@ type Creature = {
   new_unlocks: Cosmetic[];
 };
 type Cosmetic = { key: string; name: string; kind: string; unlock: string };
-type Question = { fact_id: number; question_type: string; prompt: string; priority_score?: number };
+type Question = { question_id: number; fact_id: number; question_type: string; prompt: string; priority_score?: number };
 type LearningEvent = { practiced_weak_fact: boolean; improved_fact_accuracy: boolean; practiced_division: boolean };
 type TrainingQuest = {
   quest_id: number;
@@ -52,21 +54,12 @@ type TrainingQuest = {
   status: string;
   completed_at: string | null;
 };
-type QuestStart = { quest: TrainingQuest; questions: Question[] };
+type QuestStart = { session_id: string; quest: TrainingQuest; questions: Question[] };
 type QuestCompleteResult = {
   quest: TrainingQuest;
   creature: Creature;
   facts_practised: string[];
   learning_message: string;
-};
-type CreatureSessionPayload = {
-  questions_completed: number;
-  mode: "practice" | "challenge";
-  first_attempt_correct: number;
-  second_attempt_correct: number;
-  practiced_weak_fact: boolean;
-  improved_fact_accuracy: boolean;
-  practiced_division: boolean;
 };
 type DashboardCell = {
   fact_id: number;
@@ -105,6 +98,7 @@ type ChallengeResult = {
   personal_best_average_ms: number | null;
   recent_average_ms: number | null;
   beat_recent_average: boolean;
+  creature: Creature;
   creature_events: {
     first_attempt_correct: number;
     second_attempt_correct: number;
@@ -208,13 +202,18 @@ function creatureAsset(type: string, stage: string) {
 export default function Home() {
   const [users, setUsers] = useState<User[]>([]);
   const [activeUser, setActiveUser] = useState<User | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [loginError, setLoginError] = useState("");
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [creature, setCreature] = useState<Creature | null>(null);
   const [name, setName] = useState("");
+  const [bootstrapPassword, setBootstrapPassword] = useState("");
   const [tab, setTab] = useState<Mode>("home");
   const [tables, setTables] = useState<number[]>(DEFAULT_TABLES);
   const [questionMode, setQuestionMode] = useState<QuestionMode>("mixed");
   const [status, setStatus] = useState("");
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
+  const [dashboardUserId, setDashboardUserId] = useState<number | null>(null);
   const [practicePreset, setPracticePreset] = useState(10);
   const [challengePreset, setChallengePreset] = useState(20);
   const [quests, setQuests] = useState<TrainingQuest[]>([]);
@@ -236,6 +235,7 @@ export default function Home() {
   }
 
   function navigate(nextTab: Mode) {
+    setSettingsOpen(false);
     if (pendingEvolution && tab !== "evolution") {
       setPostEvolutionTab(nextTab);
       setTab("evolution");
@@ -254,20 +254,57 @@ export default function Home() {
   async function loadUsers() {
     const data = await api<User[]>("/users");
     setUsers(data);
-    setActiveUser((current) => (current ? data.find((user) => user.id === current.id) || data[0] || null : data[0] || null));
+    setActiveUser((current) => (current ? data.find((user) => user.id === current.id) || null : null));
     return data;
   }
 
   useEffect(() => {
-    loadUsers().catch((error) => setStatus(error.message));
+    loadUsers()
+      .then(async (data) => {
+        try {
+          const loggedIn = await api<User>("/auth/me");
+          setActiveUser(data.find((user) => user.id === loggedIn.id) || loggedIn);
+          setDashboardUserId(loggedIn.id);
+        } catch {
+          setActiveUser(null);
+        }
+      })
+      .catch((error) => setStatus(error.message))
+      .finally(() => setAuthReady(true));
     api<{ version: string }>("/version").then((data) => setAppVersion(data.version)).catch(() => setAppVersion(""));
   }, []);
 
-  useEffect(() => {
-    if (activeUser && tab === "dashboard") {
-      api<Dashboard>(`/dashboard/${activeUser.id}`).then(setDashboard).catch((error) => setStatus(error.message));
+  async function login(userId: number, password: string) {
+    setLoginError("");
+    try {
+      const loggedIn = await api<User>("/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ user_id: userId, password })
+      });
+      setActiveUser(loggedIn);
+      setDashboardUserId(loggedIn.id);
+      setTab("home");
+    } catch {
+      setLoginError("That passcode was not accepted.");
     }
-  }, [activeUser, tab]);
+  }
+
+  async function logout() {
+    await api<{ logged_out: boolean }>("/auth/logout", { method: "POST" });
+    setActiveUser(null);
+    setCreature(null);
+    setQuests([]);
+    setDashboard(null);
+    setDashboardUserId(null);
+    setAdminUsers([]);
+    setTab("home");
+  }
+
+  useEffect(() => {
+    if (activeUser && dashboardUserId && tab === "dashboard") {
+      api<Dashboard>(`/dashboard/${dashboardUserId}`).then(setDashboard).catch((error) => setStatus(error.message));
+    }
+  }, [activeUser, dashboardUserId, tab]);
 
   const loadAdminUsers = useCallback(async () => {
     if (!activeUser?.is_admin) return;
@@ -294,14 +331,19 @@ export default function Home() {
   async function createProfile(event: FormEvent) {
     event.preventDefault();
     if (!name.trim()) return;
-    const user = await api<User>("/users", { method: "POST", body: JSON.stringify({ name }) });
-    setName("");
-    const updatedUsers = await loadUsers();
-    const refreshedUser = updatedUsers.find((item) => item.id === user.id) || user;
-    setActiveUser(refreshedUser);
-    if (refreshedUser.is_admin) {
-      const adminList = await api<User[]>(`/admin/${refreshedUser.id}/users`);
-      setAdminUsers(adminList);
+    setLoginError("");
+    try {
+      const user = await api<User>("/users", {
+        method: "POST",
+        body: JSON.stringify({ name, password: bootstrapPassword || undefined })
+      });
+      setName("");
+      const password = bootstrapPassword;
+      setBootstrapPassword("");
+      await loadUsers();
+      await login(user.id, password);
+    } catch (error) {
+      setLoginError(error instanceof Error ? error.message : "The parent profile could not be created.");
     }
   }
 
@@ -325,8 +367,8 @@ export default function Home() {
     } else {
       setAdminUsers([]);
     }
-    if (tab === "dashboard") {
-      const updatedDashboard = await api<Dashboard>(`/dashboard/${currentUser.id}`);
+    if (tab === "dashboard" && dashboardUserId) {
+      const updatedDashboard = await api<Dashboard>(`/dashboard/${dashboardUserId}`);
       setDashboard(updatedDashboard);
     }
   }
@@ -338,17 +380,6 @@ export default function Home() {
       body: JSON.stringify({ creature_type: creatureType, creature_name: creatureName })
     });
     setCreature(updated);
-  }
-
-  async function completeCreatureSession(payload: CreatureSessionPayload) {
-    if (!activeUser) return null;
-    const updated = await api<Creature>(`/users/${activeUser.id}/creature/session-complete`, {
-      method: "POST",
-      body: JSON.stringify(payload)
-    });
-    setCreature(updated);
-    queueEvolution(updated);
-    return updated;
   }
 
   async function selectCosmetic(selectedCosmetic: string) {
@@ -377,24 +408,6 @@ export default function Home() {
     navigate("quest");
   }
 
-  async function completeQuest(quest: TrainingQuest, payload: CreatureSessionPayload, factsPractised: number[]) {
-    if (!activeUser) return null;
-    const sessionCreature = await completeCreatureSession(payload);
-    const result = await api<QuestCompleteResult>(`/users/${activeUser.id}/quests/${quest.quest_id}/complete`, {
-      method: "POST",
-      body: JSON.stringify({
-        questions_completed: payload.questions_completed,
-        first_attempt_correct: payload.first_attempt_correct,
-        second_attempt_correct: payload.second_attempt_correct,
-        facts_practised: factsPractised
-      })
-    });
-    setCreature(result.creature);
-    queueEvolution(result.creature);
-    await loadQuests(activeUser.id);
-    return { sessionCreature, questResult: result };
-  }
-
   return (
     <main className={`shell ${focusMode ? "focusShell" : ""}`}>
       {!focusMode && <header className="topbar">
@@ -402,32 +415,23 @@ export default function Home() {
           <p className="eyebrow">Local practice engine</p>
           <h1>Recall Forge</h1>
         </div>
-        <details className="settingsMenu">
+        {activeUser && <details className="settingsMenu" open={settingsOpen} onToggle={(event) => setSettingsOpen(event.currentTarget.open)}>
           <summary>Settings</summary>
           <div className="settingsPanel">
-          <form className="profileForm" onSubmit={createProfile}>
-            <select
-              value={activeUser?.id || ""}
-              onChange={(event) => setActiveUser(users.find((user) => user.id === Number(event.target.value)) || null)}
-              aria-label="Active profile"
-            >
-              <option value="">Choose profile</option>
-              {users.map((user) => (
-                <option key={user.id} value={user.id}>
-                  {user.name}
-                </option>
-              ))}
-            </select>
-            <input value={name} onChange={(event) => setName(event.target.value)} placeholder="New profile" />
-            <button type="submit">Add</button>
+          <div className="profileForm">
+            <strong>{activeUser?.name}</strong>
+            <button type="button" className="secondaryButton" onClick={logout}>Log out</button>
             {appVersion && <p className="versionLine">Recall Forge v{appVersion}</p>}
-          </form>
+          </div>
           {activeUser && (
             <div className="settingsActions" aria-label="Settings pages">
               <button type="button" className={tab === "profile" ? "active" : ""} onClick={() => navigate("profile")}>
                 Profile
               </button>
-              <button type="button" className={tab === "dashboard" ? "active" : ""} onClick={() => navigate("dashboard")}>
+              <button type="button" className={tab === "dashboard" ? "active" : ""} onClick={() => {
+                setDashboardUserId(activeUser.id);
+                navigate("dashboard");
+              }}>
                 Dashboard
               </button>
             </div>
@@ -437,10 +441,15 @@ export default function Home() {
               adminUser={activeUser}
               users={adminUsers}
               onRefresh={refreshActiveWorkspace}
+              onViewDashboard={(userId) => {
+                setDashboard(null);
+                setDashboardUserId(userId);
+                navigate("dashboard");
+              }}
             />
           )}
           </div>
-        </details>
+        </details>}
       </header>}
 
       <section className="workspace">
@@ -460,8 +469,19 @@ export default function Home() {
           </select>
         </label>}
 
-        {!activeUser ? (
-          <div className="emptyState">Open settings to create a profile.</div>
+        {!authReady ? (
+          <div className="emptyState">Loading profiles...</div>
+        ) : !activeUser ? (
+          <ProfileLogin
+            users={users}
+            error={loginError}
+            onLogin={login}
+            name={name}
+            password={bootstrapPassword}
+            onNameChange={setName}
+            onPasswordChange={setBootstrapPassword}
+            onCreate={createProfile}
+          />
         ) : (
           <>
             {!focusMode && <details className="panel collapsiblePanel">
@@ -499,7 +519,10 @@ export default function Home() {
                 questionMode={questionMode}
                 initialLimit={practicePreset}
                 creature={creature}
-                onSessionComplete={completeCreatureSession}
+                onCreatureUpdate={(updated) => {
+                  setCreature(updated);
+                  queueEvolution(updated);
+                }}
                 onBackHome={() => navigate("home")}
                 onRestart={() => navigate("practice")}
                 onShowDashboard={() => navigate("dashboard")}
@@ -507,10 +530,13 @@ export default function Home() {
             )}
             {tab === "quest" && activeQuest && (
               <QuestMode
-                user={activeUser}
                 questStart={activeQuest}
                 creature={creature}
-                onCompleteQuest={completeQuest}
+                onCreatureUpdate={(updated) => {
+                  setCreature(updated);
+                  queueEvolution(updated);
+                  loadQuests(activeUser.id).catch((error) => setStatus(error.message));
+                }}
                 onShowDashboard={() => navigate("dashboard")}
                 onBackHome={() => navigate("home")}
               />
@@ -522,14 +548,23 @@ export default function Home() {
                 questionMode={questionMode}
                 initialCount={challengePreset}
                 creature={creature}
-                onSessionComplete={completeCreatureSession}
+                onCreatureUpdate={(updated) => {
+                  setCreature(updated);
+                  queueEvolution(updated);
+                }}
                 onBackHome={() => navigate("home")}
                 onRestart={() => navigate("challenge")}
                 onShowDashboard={() => navigate("dashboard")}
               />
             )}
             {tab === "profile" && <CreatureProfile creature={creature} onSelectCosmetic={selectCosmetic} onUpdateCreature={updateCreature} />}
-            {tab === "dashboard" && <DashboardView dashboard={dashboard} tables={tables} />}
+            {tab === "dashboard" && (
+              <DashboardView
+                dashboard={dashboard}
+                tables={tables}
+                profileName={users.find((user) => user.id === dashboardUserId)?.name || activeUser.name}
+              />
+            )}
             {tab === "evolution" && pendingEvolution && (
               <EvolutionPage event={pendingEvolution} onContinue={continueAfterEvolution} />
             )}
@@ -671,7 +706,17 @@ function EvolutionPage({ event, onContinue }: { event: EvolutionEvent; onContinu
   );
 }
 
-function AdminPanel({ adminUser, users, onRefresh }: { adminUser: User; users: User[]; onRefresh: () => Promise<void> }) {
+function AdminPanel({
+  adminUser,
+  users,
+  onRefresh,
+  onViewDashboard
+}: {
+  adminUser: User;
+  users: User[];
+  onRefresh: () => Promise<void>;
+  onViewDashboard: (userId: number) => void;
+}) {
   const [newName, setNewName] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [newAdmin, setNewAdmin] = useState(false);
@@ -723,7 +768,7 @@ function AdminPanel({ adminUser, users, onRefresh }: { adminUser: User; users: U
       </form>
       <div className="adminUserList">
         {users.map((user) => (
-          <AdminUserRow key={user.id} adminUser={adminUser} user={user} onRefresh={onRefresh} />
+          <AdminUserRow key={user.id} adminUser={adminUser} user={user} onRefresh={onRefresh} onViewDashboard={onViewDashboard} />
         ))}
       </div>
       {message && <p className="feedback">{message}</p>}
@@ -731,7 +776,17 @@ function AdminPanel({ adminUser, users, onRefresh }: { adminUser: User; users: U
   );
 }
 
-function AdminUserRow({ adminUser, user, onRefresh }: { adminUser: User; user: User; onRefresh: () => Promise<void> }) {
+function AdminUserRow({
+  adminUser,
+  user,
+  onRefresh,
+  onViewDashboard
+}: {
+  adminUser: User;
+  user: User;
+  onRefresh: () => Promise<void>;
+  onViewDashboard: (userId: number) => void;
+}) {
   const [name, setName] = useState(user.name);
   const [password, setPassword] = useState("");
   const [isAdmin, setIsAdmin] = useState(user.is_admin);
@@ -781,6 +836,7 @@ function AdminUserRow({ adminUser, user, onRefresh }: { adminUser: User; user: U
         Admin
       </label>
       <div className="adminRowActions">
+        <button type="button" className="secondaryButton" onClick={() => onViewDashboard(user.id)}>View dashboard</button>
         <button type="button" onClick={save}>Save</button>
         <button type="button" className="secondaryButton" onClick={resetProgress}>Reset progress</button>
         <button type="button" className="dangerButton" onClick={deleteUser} disabled={user.id === adminUser.id}>Delete</button>
@@ -917,7 +973,7 @@ function PracticeMode({
   questionMode,
   initialLimit,
   creature,
-  onSessionComplete,
+  onCreatureUpdate,
   onBackHome,
   onRestart,
   onShowDashboard
@@ -927,12 +983,13 @@ function PracticeMode({
   questionMode: QuestionMode;
   initialLimit: number;
   creature: Creature | null;
-  onSessionComplete: (payload: CreatureSessionPayload) => Promise<Creature | null>;
+  onCreatureUpdate: (creature: Creature) => void;
   onBackHome: () => void;
   onRestart: () => void;
   onShowDashboard: () => void;
 }) {
   const [question, setQuestion] = useState<Question | null>(null);
+  const [sessionId, setSessionId] = useState("");
   const [attemptNumber, setAttemptNumber] = useState(1);
   const [feedback, setFeedback] = useState("");
   const [questionLimit, setQuestionLimit] = useState(initialLimit);
@@ -951,11 +1008,11 @@ function PracticeMode({
   const inputRef = useRef<HTMLInputElement>(null);
   const submittingRef = useRef(false);
 
-  const loadQuestion = useCallback(async () => {
-    if (tables.length === 0) return;
+  const loadQuestion = useCallback(async (activeSessionId = sessionId) => {
+    if (!activeSessionId) return;
     const next = await api<Question>("/practice/question", {
       method: "POST",
-      body: JSON.stringify({ user_id: user.id, tables, question_mode: questionMode })
+      body: JSON.stringify({ session_id: activeSessionId })
     });
     setQuestion(next);
     setAnswerValue(inputRef, "");
@@ -965,7 +1022,7 @@ function PracticeMode({
     startedAtRef.current = Date.now();
     submittingRef.current = false;
     focusAnswer(inputRef);
-  }, [tables, questionMode, user.id]);
+  }, [sessionId]);
 
   useEffect(() => {
     setQuestionLimit(initialLimit);
@@ -983,11 +1040,11 @@ function PracticeMode({
     setSummary(null);
     setIsChecking(false);
     setQuestion(null);
+    setSessionId("");
     setStarted(false);
   }, [questionLimit, tables, questionMode, user.id]);
 
-  function startSession() {
-    setStarted(true);
+  async function startSession() {
     setCompletedCount(0);
     setCorrectCount(0);
     setFirstAttemptCorrectCount(0);
@@ -999,10 +1056,21 @@ function PracticeMode({
     setSummary(null);
     setFeedback("");
     setIsChecking(false);
-    loadQuestion().catch(() => setFeedback("Could not load a question."));
+    try {
+      const startedSession = await api<{ session_id: string }>("/practice/start", {
+        method: "POST",
+        body: JSON.stringify({ user_id: user.id, tables, question_mode: questionMode, question_count: questionLimit })
+      });
+      setSessionId(startedSession.session_id);
+      setStarted(true);
+      await loadQuestion(startedSession.session_id);
+    } catch {
+      setStarted(false);
+      setFeedback("Could not start practice.");
+    }
   }
 
-  async function finishQuestion(delayMs: number, wasCorrect: boolean, event: LearningEvent | null) {
+  async function finishQuestion(delayMs: number, wasCorrect: boolean, event: LearningEvent | null, sessionComplete: boolean, updatedCreature: Creature | null) {
     const nextCount = completedCount + 1;
     const nextCorrect = correctCount + (wasCorrect ? 1 : 0);
     const nextFirstAttemptCorrect = firstAttemptCorrectCount + (wasCorrect && attemptNumber === 1 ? 1 : 0);
@@ -1017,21 +1085,8 @@ function PracticeMode({
     setPracticedWeakFact(nextPracticedWeakFact);
     setImprovedFactAccuracy(nextImprovedFactAccuracy);
     setPracticedDivision(nextPracticedDivision);
-    if (nextCount >= questionLimit) {
-      let updatedCreature: Creature | null = null;
-      try {
-        updatedCreature = await onSessionComplete({
-          questions_completed: questionLimit,
-          mode: "practice",
-          first_attempt_correct: nextFirstAttemptCorrect,
-          second_attempt_correct: nextSecondTryCorrect,
-          practiced_weak_fact: nextPracticedWeakFact,
-          improved_fact_accuracy: nextImprovedFactAccuracy,
-          practiced_division: nextPracticedDivision
-        });
-      } catch {
-        updatedCreature = null;
-      }
+    if (sessionComplete) {
+      if (updatedCreature) onCreatureUpdate(updatedCreature);
       setSessionDone(true);
       setQuestion(null);
       setSummary({
@@ -1067,8 +1122,9 @@ function PracticeMode({
     setIsChecking(false);
     setAnswerValue(inputRef, "");
     setAttemptNumber(1);
-    setStarted(true);
-    setTimeout(loadQuestion, 0);
+    setStarted(false);
+    setSessionId("");
+    startSession();
   }
 
   async function submitAnswer() {
@@ -1078,23 +1134,28 @@ function PracticeMode({
     setIsChecking(true);
     const elapsed = Date.now() - startedAtRef.current;
     try {
-      const result = await api<{ correct: boolean; correct_answer: number; learning_event: LearningEvent }>("/practice/answer", {
+      const result = await api<{
+        correct: boolean;
+        correct_answer: number;
+        attempt_number: number;
+        session_complete: boolean;
+        creature: Creature | null;
+        learning_event: LearningEvent;
+      }>("/practice/answer", {
         method: "POST",
         body: JSON.stringify({
-          user_id: user.id,
-          fact_id: question.fact_id,
-          question_type: question.question_type,
+          session_id: sessionId,
+          question_id: question.question_id,
           answer: submittedAnswer,
-          attempt_number: attemptNumber,
           response_time_ms: elapsed
         })
       });
       if (result.correct) {
         setFeedback(attemptNumber === 1 ? "Correct." : "Got it on the second try.");
-        finishQuestion(280, true, result.learning_event).catch(() => setFeedback("Practice was recorded, but energy could not update."));
+        finishQuestion(280, true, result.learning_event, result.session_complete, result.creature).catch(() => setFeedback("Practice was recorded, but the next question could not load."));
         return;
       }
-      if (attemptNumber === 1) {
+      if (result.attempt_number === 1) {
         setAttemptNumber(2);
         setAnswerValue(inputRef, "");
         setFeedback("Try once more.");
@@ -1105,7 +1166,7 @@ function PracticeMode({
         return;
       }
       setFeedback(`Answer: ${result.correct_answer}`);
-      finishQuestion(850, false, result.learning_event).catch(() => setFeedback("Practice was recorded, but energy could not update."));
+      finishQuestion(850, false, result.learning_event, result.session_complete, result.creature).catch(() => setFeedback("Practice was recorded, but the next question could not load."));
     } catch {
       setFeedback("Could not check that answer.");
       setIsChecking(false);
@@ -1222,21 +1283,15 @@ function PracticeMode({
 }
 
 function QuestMode({
-  user,
   questStart,
   creature,
-  onCompleteQuest,
+  onCreatureUpdate,
   onShowDashboard,
   onBackHome
 }: {
-  user: User;
   questStart: QuestStart;
   creature: Creature | null;
-  onCompleteQuest: (
-    quest: TrainingQuest,
-    payload: CreatureSessionPayload,
-    factsPractised: number[]
-  ) => Promise<{ sessionCreature: Creature | null; questResult: QuestCompleteResult } | null>;
+  onCreatureUpdate: (creature: Creature) => void;
   onShowDashboard: () => void;
   onBackHome: () => void;
 }) {
@@ -1246,12 +1301,7 @@ function QuestMode({
   const [correctCount, setCorrectCount] = useState(0);
   const [firstAttemptCorrectCount, setFirstAttemptCorrectCount] = useState(0);
   const [secondTryCorrectCount, setSecondTryCorrectCount] = useState(0);
-  const [practicedWeakFact, setPracticedWeakFact] = useState(false);
-  const [improvedFactAccuracy, setImprovedFactAccuracy] = useState(false);
-  const [practicedDivision, setPracticedDivision] = useState(false);
-  const [factsPractised, setFactsPractised] = useState<number[]>([]);
   const [result, setResult] = useState<QuestCompleteResult | null>(null);
-  const [sessionReward, setSessionReward] = useState<Creature | null>(null);
   const [isChecking, setIsChecking] = useState(false);
   const startedAtRef = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -1265,51 +1315,23 @@ function QuestMode({
     setAttemptNumber(1);
     setFeedback("");
     setResult(null);
-    setSessionReward(null);
     setIsChecking(false);
     startedAtRef.current = Date.now();
     submittingRef.current = false;
     focusAnswer(inputRef);
   }, [questStart.quest.quest_id]);
 
-  async function finishQuestQuestion(wasCorrect: boolean, learningEvent: LearningEvent) {
+  async function finishQuestQuestion(wasCorrect: boolean, response: { session_complete: boolean; creature: Creature | null; quest_result: QuestCompleteResult | null }) {
     const nextCorrect = correctCount + (wasCorrect ? 1 : 0);
     const nextFirst = firstAttemptCorrectCount + (wasCorrect && attemptNumber === 1 ? 1 : 0);
     const nextSecond = secondTryCorrectCount + (wasCorrect && attemptNumber === 2 ? 1 : 0);
-    const nextWeak = practicedWeakFact || learningEvent.practiced_weak_fact;
-    const nextImproved = improvedFactAccuracy || learningEvent.improved_fact_accuracy;
-    const nextDivision = practicedDivision || learningEvent.practiced_division;
-    const nextFacts = Array.from(new Set([...factsPractised, current.fact_id]));
-
     setCorrectCount(nextCorrect);
     setFirstAttemptCorrectCount(nextFirst);
     setSecondTryCorrectCount(nextSecond);
-    setPracticedWeakFact(nextWeak);
-    setImprovedFactAccuracy(nextImproved);
-    setPracticedDivision(nextDivision);
-    setFactsPractised(nextFacts);
 
-    if (index + 1 >= questStart.questions.length) {
-      try {
-        const completed = await onCompleteQuest(
-          questStart.quest,
-          {
-            questions_completed: questStart.questions.length,
-            mode: "practice",
-            first_attempt_correct: nextFirst,
-            second_attempt_correct: nextSecond,
-            practiced_weak_fact: nextWeak,
-            improved_fact_accuracy: nextImproved,
-            practiced_division: nextDivision
-          },
-          nextFacts
-        );
-        setSessionReward(completed?.sessionCreature || null);
-        setResult(completed?.questResult || null);
-      } catch {
-        setFeedback("Quest answers were recorded, but the quest reward could not be saved.");
-        submittingRef.current = false;
-      }
+    if (response.session_complete && response.quest_result && response.creature) {
+      onCreatureUpdate(response.creature);
+      setResult(response.quest_result);
       return;
     }
 
@@ -1330,24 +1352,29 @@ function QuestMode({
     setIsChecking(true);
     const elapsed = Date.now() - startedAtRef.current;
     try {
-      const response = await api<{ correct: boolean; correct_answer: number; learning_event: LearningEvent }>("/practice/answer", {
+      const response = await api<{
+        correct: boolean;
+        correct_answer: number;
+        attempt_number: number;
+        session_complete: boolean;
+        creature: Creature | null;
+        quest_result: QuestCompleteResult | null;
+      }>("/practice/answer", {
         method: "POST",
         body: JSON.stringify({
-          user_id: user.id,
-          fact_id: current.fact_id,
-          question_type: current.question_type,
+          session_id: questStart.session_id,
+          question_id: current.question_id,
           answer: submittedAnswer,
-          attempt_number: attemptNumber,
           response_time_ms: elapsed
         })
       });
 
       if (response.correct) {
         setFeedback(attemptNumber === 1 ? "Correct." : "Fixed on the second try.");
-        setTimeout(() => finishQuestQuestion(true, response.learning_event), 280);
+        setTimeout(() => finishQuestQuestion(true, response), 280);
         return;
       }
-      if (attemptNumber === 1) {
+      if (response.attempt_number === 1) {
         setAttemptNumber(2);
         setAnswerValue(inputRef, "");
         setFeedback("Try once more.");
@@ -1358,7 +1385,7 @@ function QuestMode({
         return;
       }
       setFeedback(`Answer: ${response.correct_answer}`);
-      setTimeout(() => finishQuestQuestion(false, response.learning_event), 650);
+      setTimeout(() => finishQuestQuestion(false, response), 650);
     } catch {
       setFeedback("Could not check that answer.");
       setIsChecking(false);
@@ -1388,7 +1415,7 @@ function QuestMode({
           <p>
             You got {firstAttemptCorrectCount} right first time and fixed {secondTryCorrectCount} on your second try.
           </p>
-          <p>{creature?.creature_name || "Your companion"} gained {result.creature.xp_gained + (sessionReward?.xp_gained || 0)} XP.</p>
+          <p>{creature?.creature_name || "Your companion"} gained {result.creature.xp_gained} XP.</p>
           {result.creature.stage_message && <p>{result.creature.stage_message}</p>}
           <p className="quiet">{result.learning_message}</p>
           {result.facts_practised.length > 0 && <p className="quiet">Facts practised: {result.facts_practised.join(", ")}</p>}
@@ -1440,7 +1467,7 @@ function ChallengeMode({
   questionMode,
   initialCount,
   creature,
-  onSessionComplete,
+  onCreatureUpdate,
   onBackHome,
   onRestart,
   onShowDashboard
@@ -1450,18 +1477,18 @@ function ChallengeMode({
   questionMode: QuestionMode;
   initialCount: number;
   creature: Creature | null;
-  onSessionComplete: (payload: CreatureSessionPayload) => Promise<Creature | null>;
+  onCreatureUpdate: (creature: Creature) => void;
   onBackHome: () => void;
   onRestart: () => void;
   onShowDashboard: () => void;
 }) {
   const [count, setCount] = useState(initialCount);
   const [questions, setQuestions] = useState<Question[]>([]);
+  const [sessionId, setSessionId] = useState("");
   const [index, setIndex] = useState(0);
-  const [answers, setAnswers] = useState<{ fact_id: number; question_type: string; answer: string; response_time_ms: number }[]>([]);
+  const [answers, setAnswers] = useState<{ question_id: number; answer: string; response_time_ms: number }[]>([]);
   const startedAtRef = useRef(0);
   const [result, setResult] = useState<ChallengeResult | null>(null);
-  const [creatureReward, setCreatureReward] = useState<Creature | null>(null);
   const [feedback, setFeedback] = useState("");
   const [isSubmittingAnswer, setIsSubmittingAnswer] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -1476,16 +1503,16 @@ function ChallengeMode({
     setCount(safeCount);
     setFeedback("");
     try {
-      const data = await api<{ questions: Question[] }>("/challenge/start", {
+      const data = await api<{ session_id: string; questions: Question[] }>("/challenge/start", {
         method: "POST",
         body: JSON.stringify({ user_id: user.id, tables, question_count: safeCount, question_mode: questionMode })
       });
       setQuestions(data.questions);
+      setSessionId(data.session_id);
       setIndex(0);
       setAnswers([]);
       setAnswerValue(inputRef, "");
       setResult(null);
-      setCreatureReward(null);
       setIsSubmittingAnswer(false);
       startedAtRef.current = Date.now();
       submittingRef.current = false;
@@ -1503,7 +1530,7 @@ function ChallengeMode({
     setIsSubmittingAnswer(true);
     const nextAnswers = [
       ...answers,
-      { fact_id: current.fact_id, question_type: current.question_type, answer: submittedAnswer, response_time_ms: Date.now() - startedAtRef.current }
+      { question_id: current.question_id, answer: submittedAnswer, response_time_ms: Date.now() - startedAtRef.current }
     ];
     setAnswerValue(inputRef, "");
     if (index + 1 < questions.length) {
@@ -1518,23 +1545,9 @@ function ChallengeMode({
     try {
       const data = await api<ChallengeResult>("/challenge/submit", {
         method: "POST",
-        body: JSON.stringify({ user_id: user.id, tables, answers: nextAnswers })
+        body: JSON.stringify({ session_id: sessionId, answers: nextAnswers })
       });
-      let updatedCreature: Creature | null = null;
-      try {
-        updatedCreature = await onSessionComplete({
-          questions_completed: nextAnswers.length,
-          mode: "challenge",
-          first_attempt_correct: data.creature_events.first_attempt_correct,
-          second_attempt_correct: data.creature_events.second_attempt_correct,
-          practiced_weak_fact: data.creature_events.practiced_weak_fact,
-          improved_fact_accuracy: data.creature_events.improved_fact_accuracy,
-          practiced_division: data.creature_events.practiced_division
-        });
-      } catch {
-        updatedCreature = null;
-      }
-      setCreatureReward(updatedCreature);
+      onCreatureUpdate(data.creature);
       setQuestions([]);
       setResult(data);
     } catch {
@@ -1625,15 +1638,15 @@ function ChallengeMode({
       {result && (
         <ChallengeResults
           result={result}
-          creatureName={creatureReward?.creature_name || creature?.creature_name || "Your companion"}
-          creatureStatus={creatureReward?.status_message || ""}
-          energyGained={creatureReward?.energy_gained || 0}
-          xpGained={creatureReward?.xp_gained || 0}
-          stageMessage={creatureReward?.stage_message || ""}
-          evolutionFrom={creatureReward?.evolution_from || null}
-          evolutionTo={creatureReward?.evolution_to || null}
-          newUnlocks={creatureReward?.new_unlocks || []}
-          onRestart={creatureReward?.evolution_from && creatureReward.evolution_to ? onRestart : start}
+          creatureName={result.creature?.creature_name || creature?.creature_name || "Your companion"}
+          creatureStatus={result.creature?.status_message || ""}
+          energyGained={result.creature?.energy_gained || 0}
+          xpGained={result.creature?.xp_gained || 0}
+          stageMessage={result.creature?.stage_message || ""}
+          evolutionFrom={result.creature?.evolution_from || null}
+          evolutionTo={result.creature?.evolution_to || null}
+          newUnlocks={result.creature?.new_unlocks || []}
+          onRestart={result.creature?.evolution_from && result.creature.evolution_to ? onRestart : start}
           onBackHome={onBackHome}
           onShowDashboard={onShowDashboard}
         />
@@ -1734,30 +1747,9 @@ function ChallengeResults({
   );
 }
 
-function NumberPad({ onPress, disabled = false }: { onPress: (key: string) => void; disabled?: boolean }) {
-  return (
-    <div className="numberPad" aria-label="Number pad">
-      {["1", "2", "3", "4", "5", "6", "7", "8", "9", "clear", "0", "backspace"].map((key) => (
-        <button
-          key={key}
-          type="button"
-          className={key.length > 1 ? "utility" : ""}
-          onClick={() => onPress(key)}
-          disabled={disabled}
-          aria-label={key === "backspace" ? "Delete last digit" : key === "clear" ? "Clear answer" : key}
-        >
-          {key === "backspace" ? "⌫" : key === "clear" ? "Clear" : key}
-        </button>
-      ))}
-      <button type="button" className="enter" onClick={() => onPress("enter")} disabled={disabled}>
-        Enter
-      </button>
-    </div>
-  );
-}
-
-function DashboardView({ dashboard, tables }: { dashboard: Dashboard | null; tables: number[] }) {
+function DashboardView({ dashboard, tables, profileName }: { dashboard: Dashboard | null; tables: number[]; profileName: string }) {
   const [showFactLabels, setShowFactLabels] = useState(false);
+  const [view, setView] = useState<"overview" | "accuracy" | "speed" | "progress">("overview");
   const selectedTables = useMemo(() => [...tables].sort((a, b) => a - b), [tables]);
   const selectedCells = useMemo(
     () => (dashboard?.cells || []).filter((cell) => selectedTables.includes(cell.a)),
@@ -1782,26 +1774,52 @@ function DashboardView({ dashboard, tables }: { dashboard: Dashboard | null; tab
 
   return (
     <section className="dashboard">
+      <div className="sectionHeader">
+        <div>
+          <p className="eyebrow">Parent view</p>
+          <h2>{profileName}&apos;s progress</h2>
+        </div>
+      </div>
+      <div className="dashboardTabs" aria-label="Dashboard view">
+        {([
+          ["overview", "Overview"],
+          ["accuracy", "Accuracy"],
+          ["speed", "Speed"],
+          ["progress", "Progress"]
+        ] as const).map(([value, label]) => (
+          <button type="button" key={value} className={view === value ? "active" : ""} onClick={() => setView(value)}>
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="dashboardControls">
+        <span className="quiet">Showing selected tables: {selectedTables.join(", ")}</span>
+        {(view === "accuracy" || view === "speed") && (
+          <label className="toggleRow">
+            <input type="checkbox" checked={showFactLabels} onChange={(event) => setShowFactLabels(event.target.checked)} />
+            Show facts in heat map boxes
+          </label>
+        )}
+      </div>
+      {view === "overview" && <>
       <div className="metricGrid">
         <Metric label="Answers" value={`${selectedTotals.correct + selectedTotals.incorrect}`} />
         <Metric label="Correct" value={`${selectedTotals.correct}`} />
         <Metric label="Incorrect" value={`${selectedTotals.incorrect}`} />
         <Metric label="Accuracy" value={selectedTotals.accuracy === null ? "-" : `${Math.round(selectedTotals.accuracy * 100)}%`} />
       </div>
-      <div className="dashboardControls">
-        <span className="quiet">Showing selected tables: {selectedTables.join(", ")}</span>
-        <label className="toggleRow">
-          <input type="checkbox" checked={showFactLabels} onChange={(event) => setShowFactLabels(event.target.checked)} />
-          Show facts in heat map boxes
-        </label>
-      </div>
-      <HeatMap title="Accuracy" cells={selectedCells} rows={selectedTables} columns={ALL_TABLES} colourKey="accuracy_colour" valueKey="accuracy" showFactLabels={showFactLabels} />
-      <HeatMap title="Speed" cells={selectedCells} rows={selectedTables} columns={ALL_TABLES} colourKey="speed_colour" valueKey="average_time_ms" showFactLabels={showFactLabels} speed />
       <div className="split">
         <FactList title="Strengths" facts={selectedStrengths} />
         <FactList title="Weaknesses" facts={selectedWeaknesses} />
       </div>
-      <ParentStats dashboard={dashboard} />
+      </>}
+      {view === "accuracy" && (
+        <HeatMap title="Accuracy" cells={selectedCells} rows={selectedTables} columns={ALL_TABLES} colourKey="accuracy_colour" valueKey="accuracy" showFactLabels={showFactLabels} />
+      )}
+      {view === "speed" && (
+        <HeatMap title="Speed" cells={selectedCells} rows={selectedTables} columns={ALL_TABLES} colourKey="speed_colour" valueKey="average_time_ms" showFactLabels={showFactLabels} speed />
+      )}
+      {view === "progress" && <ParentStats dashboard={dashboard} />}
     </section>
   );
 }
@@ -1919,14 +1937,14 @@ function HeatMap({
         <div className="heatMap" style={{ gridTemplateColumns: `54px repeat(${columns.length}, minmax(58px, 1fr)) 54px` }}>
           <div className="heatCorner" />
           {columns.map((table) => (
-            <div key={`${title}-col-${table}`} className="heatHeader">
+            <div key={`${title}-col-${table}`} className="heatHeader heatColumnHeader">
               {table}
             </div>
           ))}
           <div className="heatCorner" />
           {rows.map((row) => (
             <div className="heatRow" key={`${title}-row-${row}`} style={{ display: "contents" }}>
-              <div className="heatHeader">{row}</div>
+              <div className="heatHeader heatRowHeader">{row}</div>
               {columns.map((column) => {
                 const cell = cellByPair.get(`${row}-${column}`);
                 const value = cell ? cell[valueKey] : null;
@@ -1937,7 +1955,7 @@ function HeatMap({
                   </div>
                 );
               })}
-              <div className="heatHeader">{row}</div>
+              <div className="heatHeader heatRowHeader heatRowHeaderEnd">{row}</div>
             </div>
           ))}
         </div>

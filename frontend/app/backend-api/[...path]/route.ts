@@ -16,6 +16,10 @@ async function proxy(request: NextRequest, context: RouteContext) {
   if (contentType) {
     headers.set("content-type", contentType);
   }
+  const cookie = request.headers.get("cookie");
+  if (cookie) {
+    headers.set("cookie", cookie);
+  }
 
   const response = await fetch(upstream, {
     method: request.method,
@@ -24,12 +28,14 @@ async function proxy(request: NextRequest, context: RouteContext) {
     cache: "no-store"
   });
 
-  return new Response(response.body, {
-    status: response.status,
-    headers: {
-      "content-type": response.headers.get("content-type") || "application/json"
-    }
-  });
+  const responseHeaders = new Headers();
+  responseHeaders.set("content-type", response.headers.get("content-type") || "application/json");
+  for (const name of ["content-disposition", "set-cookie", "cache-control"]) {
+    const value = response.headers.get(name);
+    if (value) responseHeaders.set(name, value);
+  }
+
+  return new Response(response.body, { status: response.status, headers: responseHeaders });
 }
 
 export const GET = proxy;

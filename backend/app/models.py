@@ -39,6 +39,19 @@ class User(Base):
     weekly_goal_awarded_week: Mapped[str] = mapped_column(String(16), nullable=False, default="")
 
     attempts: Mapped[list["QuestionAttempt"]] = relationship(back_populates="user")
+    auth_sessions: Mapped[list["AuthSession"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+
+
+class AuthSession(Base):
+    __tablename__ = "auth_sessions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+
+    user: Mapped["User"] = relationship(back_populates="auth_sessions")
 
 
 class Fact(Base):
@@ -146,3 +159,46 @@ class TrainingQuest(Base):
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     user: Mapped["User"] = relationship()
+
+
+class LearningSession(Base):
+    __tablename__ = "learning_sessions"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    mode: Mapped[str] = mapped_column(String(16), nullable=False)
+    question_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="mixed")
+    selected_tables: Mapped[str] = mapped_column(String(64), nullable=False)
+    expected_questions: Mapped[int] = mapped_column(Integer, nullable=False)
+    completed_questions: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    first_attempt_correct: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    second_attempt_correct: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    practiced_weak_fact: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    improved_fact_accuracy: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    practiced_division: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    quest_id: Mapped[Optional[int]] = mapped_column(ForeignKey("training_quests.id", ondelete="SET NULL"), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
+    reward_applied: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    questions: Mapped[list["LearningSessionQuestion"]] = relationship(
+        back_populates="session", cascade="all, delete-orphan", order_by="LearningSessionQuestion.position"
+    )
+
+
+class LearningSessionQuestion(Base):
+    __tablename__ = "learning_session_questions"
+    __table_args__ = (UniqueConstraint("session_id", "position", name="uq_learning_session_position"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    session_id: Mapped[str] = mapped_column(ForeignKey("learning_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    fact_id: Mapped[int] = mapped_column(ForeignKey("facts.id"), nullable=False)
+    question_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    prompt: Mapped[str] = mapped_column(String(80), nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    completed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    session: Mapped["LearningSession"] = relationship(back_populates="questions")
+    fact: Mapped["Fact"] = relationship()

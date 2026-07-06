@@ -6,6 +6,8 @@ import assert from "node:assert/strict";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const pageSource = readFileSync(join(root, "app/page.tsx"), "utf8");
+const numberPadSource = readFileSync(join(root, "components/NumberPad.tsx"), "utf8");
+const loginSource = readFileSync(join(root, "components/ProfileLogin.tsx"), "utf8");
 const creatureAssets = readdirSync(join(root, "public/assets/creatures")).filter((file) => file.endsWith(".svg"));
 
 test("all creature types have all evolution stage assets", () => {
@@ -31,10 +33,18 @@ test("practice uses a setup screen before the focused answer surface", () => {
 });
 
 test("focused maths runs use a stable timer-free keypad", () => {
-  assert.match(pageSource, /aria-label="Number pad"/);
-  assert.match(pageSource, /Clear answer/);
-  assert.match(pageSource, /Delete last digit/);
+  assert.match(numberPadSource, /aria-label="Number pad"/);
+  assert.match(numberPadSource, /Clear answer/);
+  assert.match(numberPadSource, /Delete last digit/);
   assert.doesNotMatch(pageSource, /countdown/i);
+});
+
+test("profile chooser supports passcode login and first-time setup", () => {
+  assert.match(loginSource, /Who is practising/);
+  assert.match(loginSource, /current-password/);
+  assert.match(loginSource, /Create the parent profile/);
+  assert.match(pageSource, /\/auth\/login/);
+  assert.match(pageSource, /\/auth\/logout/);
 });
 
 test("evolution uses a dedicated navigation-gated event screen", () => {

@@ -1,7 +1,7 @@
 services:
   times-tables-backend:
     build:
-      context: https://github.com/Rinsing4852/times-tables.git#main:backend
+      context: ./backend
     container_name: times-tables-backend
     restart: unless-stopped
     init: true
@@ -37,7 +37,7 @@ services:
 
   times-tables-frontend:
     build:
-      context: https://github.com/Rinsing4852/times-tables.git#main:frontend
+      context: ./frontend
     container_name: times-tables-frontend
     restart: unless-stopped
     init: true
