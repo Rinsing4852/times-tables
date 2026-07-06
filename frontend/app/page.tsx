@@ -139,6 +139,13 @@ type PracticeSummary = {
 const DEFAULT_TABLES = [2, 3, 4, 5];
 const ALL_TABLES = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 const CREATURE_TYPES = ["Blob", "Dragon", "Robot", "Forest Sprite", "Rock Golem", "Space Beast"];
+const CREATURE_STAGES = [
+  { name: "Egg", level: 1 },
+  { name: "Hatchling", level: 2 },
+  { name: "Youngling", level: 4 },
+  { name: "Explorer", level: 7 },
+  { name: "Champion", level: 11 }
+];
 const STAGE_SLUGS: Record<string, string> = {
   Egg: "egg",
   Hatchling: "hatchling",
@@ -197,6 +204,10 @@ function creatureAsset(type: string, stage: string) {
   const typeSlug = CREATURE_SLUGS[type] || "blob";
   const stageSlug = STAGE_SLUGS[stage] || "egg";
   return `/assets/creatures/${typeSlug}-${stageSlug}.svg`;
+}
+
+function creatureSlug(type: string) {
+  return CREATURE_SLUGS[type] || "blob";
 }
 
 export default function Home() {
@@ -594,7 +605,7 @@ function CreatureHome({
   return (
     <section className="creatureHome">
       <div className="creatureCard">
-        <div className="creatureAvatarWrap">
+        <div className={`creatureAvatarWrap habitat-${creatureSlug(creature.creature_type)}`}>
           <CreatureAvatar type={creature.creature_type} stage={creature.stage} cosmetic={creature.selected_cosmetic} />
         </div>
         <div className="creatureInfo">
@@ -683,25 +694,33 @@ function EvolutionPrompt({ creatureName, toStage }: { creatureName: string; toSt
 }
 
 function EvolutionPage({ event, onContinue }: { event: EvolutionEvent; onContinue: () => void }) {
+  const [revealed, setRevealed] = useState(false);
+
+  useEffect(() => {
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const timer = window.setTimeout(() => setRevealed(true), reducedMotion ? 100 : 2800);
+    return () => window.clearTimeout(timer);
+  }, []);
+
   return (
-    <section className="evolutionPage" aria-live="polite">
+    <section className={`evolutionPage ${revealed ? "revealed" : "transforming"}`} aria-live="polite">
       <div className="evolutionStars" aria-hidden="true" />
       <p className="eyebrow">Evolution</p>
-      <h2>{event.creatureName} is evolving.</h2>
-      <div className="evolutionStage">
-        <CreatureAvatar type={event.creatureType} stage={event.fromStage} />
-        <div className="evolutionFlash" aria-hidden="true">
-          <span />
+      <h2>{revealed ? `${event.creatureName} evolved!` : `${event.creatureName} is evolving...`}</h2>
+      <div className="evolutionMorph" role="img" aria-label={`${event.creatureName} evolves from ${event.fromStage} to ${event.toStage}`}>
+        <div className="evolutionForm evolutionBeforeForm" aria-hidden="true">
+          <CreatureAvatar type={event.creatureType} stage={event.fromStage} />
         </div>
-        <CreatureAvatar type={event.creatureType} stage={event.toStage} />
+        <div className="evolutionBurst" aria-hidden="true"><span /></div>
+        <div className="evolutionForm evolutionAfterForm" aria-hidden="true">
+          <CreatureAvatar type={event.creatureType} stage={event.toStage} />
+        </div>
       </div>
-      <div className="evolutionMessage">
+      {revealed && <div className="evolutionMessage visible">
         <strong>{event.creatureName} reached {event.toStage} stage.</strong>
         <p>Your practice helped {event.creatureName} grow stronger.</p>
-      </div>
-      <button type="button" className="startTestButton" onClick={onContinue}>
-        Continue
-      </button>
+      </div>}
+      {revealed && <button type="button" className="startTestButton evolutionContinue" onClick={onContinue}>Continue</button>}
     </section>
   );
 }
@@ -885,7 +904,7 @@ function CreatureProfile({
   return (
     <section className="creatureProfile">
       <div className="creatureCard">
-        <div className="creatureAvatarWrap">
+        <div className={`creatureAvatarWrap habitat-${creatureSlug(creature.creature_type)}`}>
           <CreatureAvatar type={creature.creature_type} stage={creature.stage} cosmetic={creature.selected_cosmetic} />
         </div>
         <div className="creatureInfo">
@@ -909,18 +928,44 @@ function CreatureProfile({
         </div>
       </div>
 
+      <section className="panel evolutionPathSection">
+        <div className="sectionHeader">
+          <div>
+            <p className="eyebrow">Growth path</p>
+            <h2>{creature.creature_name}&apos;s evolutions</h2>
+          </div>
+          <span className="quiet">Current stage: {creature.stage}</span>
+        </div>
+        <div className="evolutionPath" aria-label={`${creature.creature_name}'s evolution stages`}>
+          {CREATURE_STAGES.map((item) => {
+            const current = item.name === creature.stage;
+            const reached = creature.level >= item.level;
+            return (
+              <div key={item.name} className={`evolutionStep ${current ? "current" : ""} ${reached ? "reached" : "future"}`}>
+                <div className="evolutionThumbnail">
+                  <CreatureAvatar type={creature.creature_type} stage={item.name} cosmetic="" />
+                </div>
+                <strong>{item.name}</strong>
+                <span>Level {item.level}</span>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
       <form className="panel creatureSetup" onSubmit={saveCreature}>
         <h2>Companion setup</h2>
-        <label>
-          Creature
-          <select value={creatureType} onChange={(event) => setCreatureType(event.target.value)}>
+        <div className="speciesField">
+          <span className="fieldLabel">Creature</span>
+          <div className="speciesPicker" role="group" aria-label="Choose creature">
             {CREATURE_TYPES.map((type) => (
-              <option key={type} value={type}>
-                {type}
-              </option>
+              <button key={type} type="button" className={creatureType === type ? "selected" : ""} aria-pressed={creatureType === type} onClick={() => setCreatureType(type)}>
+                <CreatureAvatar type={type} stage={creature.stage} cosmetic="" />
+                <span>{type}</span>
+              </button>
             ))}
-          </select>
-        </label>
+          </div>
+        </div>
         <label>
           Name
           <input
@@ -1776,7 +1821,7 @@ function DashboardView({ dashboard, tables, profileName }: { dashboard: Dashboar
     <section className="dashboard">
       <div className="sectionHeader">
         <div>
-          <p className="eyebrow">Parent view</p>
+          <p className="eyebrow">Progress dashboard</p>
           <h2>{profileName}&apos;s progress</h2>
         </div>
       </div>

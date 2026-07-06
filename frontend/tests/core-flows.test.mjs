@@ -16,6 +16,9 @@ test("all creature types have all evolution stage assets", () => {
   for (const type of types) {
     for (const stage of stages) {
       assert.ok(creatureAssets.includes(`${type}-${stage}.svg`), `${type}-${stage}.svg missing`);
+      const source = readFileSync(join(root, "public/assets/creatures", `${type}-${stage}.svg`), "utf8");
+      assert.match(source, /viewBox="0 0 320 320"/);
+      assert.match(source, new RegExp(`aria-label="[^"]+ ${stage[0].toUpperCase() + stage.slice(1)} stage"`));
     }
   }
 });
@@ -52,6 +55,9 @@ test("evolution uses a dedicated navigation-gated event screen", () => {
   assert.match(pageSource, /EvolutionPage/);
   assert.match(pageSource, /reached \{event\.toStage\} stage/);
   assert.match(pageSource, /pendingEvolution/);
+  assert.match(pageSource, /evolutionMorph/);
+  assert.match(pageSource, /CREATURE_STAGES\.map/);
+  assert.match(pageSource, /speciesPicker/);
 });
 
 test("admin backup and progress export actions are exposed", () => {

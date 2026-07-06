@@ -1,19 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" role="img" aria-label="Rock Golem Egg stage">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320" role="img" aria-label="Rock Golem Egg stage">
   <defs>
-    <linearGradient id="body" x1="48" x2="192" y1="28" y2="224" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#f1eee8"/>
-      <stop offset=".68" stop-color="#a59d91"/>
-      <stop offset="1" stop-color="#726b63"/>
+    <linearGradient id="body" x1="95" y1="70" x2="228" y2="266" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#e4dfd5"/><stop offset=".62" stop-color="#a9a197"/><stop offset="1" stop-color="#6d6a70"/>
     </linearGradient>
+    <filter id="soft"><feGaussianBlur stdDeviation="5"/></filter>
   </defs>
-  <path d="M72 75 95 43h51l23 32" fill="#8d867d" stroke="#18212f" stroke-width="7" stroke-linejoin="round"/>
-  
-  
-  
-  <path d="M75 128c0-44 20-69 45-69s45 25 45 69v22c0 30-20 48-45 48s-45-19-45-48z" fill="url(#body)" stroke="#18212f" stroke-width="8"/>
-  <path d="M70 132c17-16 32-16 49 0 16 15 32 15 51 0" fill="none" stroke="#18212f" stroke-width="7" stroke-linecap="round"/>
-  <circle cx="96" cy="108" r="9" fill="#18212f"/>
-  <circle cx="144" cy="108" r="9" fill="#18212f"/>
-  <path d="M106 153c11 10 17 10 28 0" fill="none" stroke="#18212f" stroke-width="7" stroke-linecap="round"/>
-  
+
+    <ellipse cx="160" cy="271" rx="74" ry="14" fill="#172033" opacity=".13"/>
+    <path d="m160 48 58 37 18 74-19 79-57 30-57-30-19-79 18-74Z" fill="url(#body)" stroke="#172033" stroke-width="10" stroke-linejoin="round"/>
+    <path d="m160 48-14 66 37 30-23 124M102 85l44 29-62 45M218 85l-35 59 53 15" fill="none" stroke="#7469d8" stroke-width="8" stroke-linejoin="round"/>
+    <path d="m145 145 15-21 15 21-15 31Z" fill="#7de3ff" stroke="#172033" stroke-width="6"/>
 </svg>

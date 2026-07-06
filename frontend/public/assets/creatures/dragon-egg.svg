@@ -1,19 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" role="img" aria-label="Dragon Egg stage">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320" role="img" aria-label="Dragon Egg stage">
   <defs>
-    <linearGradient id="body" x1="48" x2="192" y1="28" y2="224" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#e7ffd9"/>
-      <stop offset=".68" stop-color="#69b34c"/>
-      <stop offset="1" stop-color="#2f8f46"/>
+    <linearGradient id="body" x1="95" y1="70" x2="228" y2="266" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#c9ff9d"/><stop offset=".62" stop-color="#68c95b"/><stop offset="1" stop-color="#298d55"/>
     </linearGradient>
+    <filter id="soft"><feGaussianBlur stdDeviation="5"/></filter>
   </defs>
-  <path d="M181 141c29 6 42 25 33 46-18-19-32-21-51-12" fill="#69b34c" stroke="#18212f" stroke-width="7" stroke-linejoin="round"/>
-  
-  
-  
-  <path d="M75 128c0-44 20-69 45-69s45 25 45 69v22c0 30-20 48-45 48s-45-19-45-48z" fill="url(#body)" stroke="#18212f" stroke-width="8"/>
-  <path d="M70 132c17-16 32-16 49 0 16 15 32 15 51 0" fill="none" stroke="#18212f" stroke-width="7" stroke-linecap="round"/>
-  <circle cx="96" cy="108" r="9" fill="#18212f"/>
-  <circle cx="144" cy="108" r="9" fill="#18212f"/>
-  <path d="M106 153c11 10 17 10 28 0" fill="none" stroke="#18212f" stroke-width="7" stroke-linecap="round"/>
-  
+
+    <ellipse cx="160" cy="270" rx="72" ry="14" fill="#172033" opacity=".12"/>
+    <path d="M160 48c-47 0-77 62-70 137 5 57 29 82 70 82s65-25 70-82c7-75-23-137-70-137Z" fill="url(#body)" stroke="#172033" stroke-width="9"/>
+    <path d="m108 159 28-18 25 20 26-22 25 18M126 213l34-22 34 22" fill="none" stroke="#f3d56a" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M193 79q31 22 21 54" fill="none" stroke="#fff" stroke-width="10" stroke-linecap="round" opacity=".5"/>
+    <path d="M137 112q23-20 46 0" fill="none" stroke="#172033" stroke-width="7" stroke-linecap="round"/>
 </svg>

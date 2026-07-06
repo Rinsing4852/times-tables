@@ -1,20 +1,21 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" role="img" aria-label="Dragon Explorer stage">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320" role="img" aria-label="Dragon Explorer stage">
   <defs>
-    <linearGradient id="body" x1="48" x2="192" y1="28" y2="224" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#e7ffd9"/>
-      <stop offset=".68" stop-color="#69b34c"/>
-      <stop offset="1" stop-color="#2f8f46"/>
+    <linearGradient id="body" x1="95" y1="70" x2="228" y2="266" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#c9ff9d"/><stop offset=".62" stop-color="#68c95b"/><stop offset="1" stop-color="#298d55"/>
     </linearGradient>
+    <filter id="soft"><feGaussianBlur stdDeviation="5"/></filter>
   </defs>
-  <path d="M181 141c29 6 42 25 33 46-18-19-32-21-51-12" fill="#69b34c" stroke="#18212f" stroke-width="7" stroke-linejoin="round"/>
-  <path d="M77 74 44 35l3 62" fill="#f2d133" stroke="#18212f" stroke-width="7" stroke-linejoin="round"/>
-<path d="m163 74 33-39-3 62" fill="#f2d133" stroke="#18212f" stroke-width="7" stroke-linejoin="round"/>
-  <path d="M74 50h92l-10 28H84z" fill="#2563eb" stroke="#18212f" stroke-width="7" stroke-linejoin="round"/>
-  <path d="M50.480000000000004 140 25 160M189.52 140l37 20" stroke="#18212f" stroke-width="10" stroke-linecap="round"/>
-  <path d="M56 128c0-62 29-97 64-97s64 35 64 97v31c0 42-28 68-64 68s-64-26-64-68z" fill="url(#body)" stroke="#18212f" stroke-width="8"/>
-  
-  <circle cx="96" cy="114" r="9" fill="#18212f"/>
-  <circle cx="144" cy="114" r="9" fill="#18212f"/>
-  <path d="M106 153c11 10 17 10 28 0" fill="none" stroke="#18212f" stroke-width="7" stroke-linecap="round"/>
-  <path d="M90 162 72 232M150 162l18 20" stroke="#18212f" stroke-width="10" stroke-linecap="round"/>
+
+    <ellipse cx="160" cy="281" rx="86" ry="15" fill="#172033" opacity=".13"/>
+    <path d="M214 214q67 4 63-49-18 25-45 13" fill="#4aad58" stroke="#172033" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/><path d="M102 151Q58 86 38 104l44 37-49 32q36 6 66 29Z" fill="#87df78" stroke="#172033" stroke-width="9" stroke-linejoin="round"/>
+    <path d="M218 151Q262 86 282 104l-44 37 49 32q-36 6-66 29Z" fill="#87df78" stroke="#172033" stroke-width="9" stroke-linejoin="round"/><path d="M126 101 110 46l35 31M194 101l16-55-35 31" fill="#f3d56a" stroke="#172033" stroke-width="8" stroke-linejoin="round"/>
+    <path d="M99 158q-32 23-38 61M221 158q32 23 38 61" fill="none" stroke="#172033" stroke-width="15" stroke-linecap="round"/>
+    <path d="M160 94C115.12 94 92 125 92 179V224C92 252 124.64 266 160 266S228 252 228 224V179C228 125 204.88 94 160 94Z" fill="url(#body)" stroke="#172033" stroke-width="10"/>
+    <path d="M130.07999999999998 231 117.84 278M189.92000000000002 231l12.24 47" fill="none" stroke="#172033" stroke-width="16" stroke-linecap="round"/>
+    <path d="M160 183q-25 0-35 23 35 20 70 0-10-23-35-23Z" fill="#f7e4a4" stroke="#172033" stroke-width="7"/>
+
+  <ellipse cx="135" cy="139" rx="7" ry="9" fill="#172033"/>
+  <ellipse cx="185" cy="139" rx="7" ry="9" fill="#172033"/>
+  <path d="M144 164 Q160 178 176 164" fill="none" stroke="#172033" stroke-width="6" stroke-linecap="round"/>
+    <path d="m151 167 9 7 9-7" fill="none" stroke="#172033" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

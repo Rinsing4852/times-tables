@@ -1,6 +1,6 @@
 # Recall Forge
 
-Recall Forge 0.5.0 is a self-hosted times tables practice app for local use. It is intentionally focused: authenticated local profiles, adaptive practice, smart training quests, challenge mode, heat maps, SQLite, no external accounts, no analytics, and no AI API. It also includes a light companion creature theme where practice gives the creature energy and XP while the learning engine stays focused on recall and spaced practice. Creatures have type-specific evolution artwork, but remain calm maths companions rather than a needy care system.
+Recall Forge 0.6.0 is a self-hosted times tables practice app for local use. It is intentionally focused: authenticated local profiles, adaptive practice, smart training quests, challenge mode, heat maps, SQLite, no external accounts, no analytics, and no AI API. It also includes a light companion creature theme where practice gives the creature energy and XP while the learning engine stays focused on recall and spaced practice. Each species has a distinct five-stage evolution path and a dedicated transformation moment, but remains a calm maths companion rather than a needy care system.
 
 ## Stack
 
@@ -197,8 +197,8 @@ npm test
 
 - Multiple authenticated local profiles. The first profile is the admin and requires a passcode of at least four characters.
 - Admin profiles can create other admins, rename profiles, reset passcodes, reset progress, and delete profiles.
-- A safe creature companion per profile with type, name, energy, XP, level, stage, weekly goal, cosmetic unlocks, and type-specific evolution artwork.
-- A positive evolution moment appears when a creature reaches a new growth stage.
+- A safe creature companion per profile with type, name, energy, XP, level, stage, weekly goal, cosmetic unlocks, and 30 lightweight species-stage SVGs.
+- A visual five-stage growth path, six-species picker, and positive full-screen evolution moment.
 - Smart training quests generated from fact accuracy, speed, and recent mistakes.
 - A higher-reward explorer quest encourages tables that have had little or no practice.
 - Practice and challenge modes can be set to multiplication only, division only, or mixed questions.

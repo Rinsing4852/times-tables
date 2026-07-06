@@ -1,10 +1,11 @@
 {
   "name": "recall-forge-frontend",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "generate:creatures": "node scripts/generate-creatures.mjs",
     "start": "next start",
     "lint": "eslint .",
     "test": "node --test tests/*.test.mjs"

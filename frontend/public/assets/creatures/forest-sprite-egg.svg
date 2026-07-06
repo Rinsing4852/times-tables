@@ -1,19 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" role="img" aria-label="Forest Sprite Egg stage">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320" role="img" aria-label="Forest Sprite Egg stage">
   <defs>
-    <linearGradient id="body" x1="48" x2="192" y1="28" y2="224" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#e8ffe9"/>
-      <stop offset=".68" stop-color="#56b58a"/>
-      <stop offset="1" stop-color="#2d8f6b"/>
+    <linearGradient id="body" x1="95" y1="70" x2="228" y2="266" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#d7f2aa"/><stop offset=".62" stop-color="#78c96b"/><stop offset="1" stop-color="#38875c"/>
     </linearGradient>
+    <filter id="soft"><feGaussianBlur stdDeviation="5"/></filter>
   </defs>
-  <path d="M126 40c22-21 47-20 63 3-23 3-38 13-48 31" fill="#8ad46f" stroke="#18212f" stroke-width="7" stroke-linejoin="round"/>
-  
-  
-  
-  <path d="M75 128c0-44 20-69 45-69s45 25 45 69v22c0 30-20 48-45 48s-45-19-45-48z" fill="url(#body)" stroke="#18212f" stroke-width="8"/>
-  <path d="M70 132c17-16 32-16 49 0 16 15 32 15 51 0" fill="none" stroke="#18212f" stroke-width="7" stroke-linecap="round"/>
-  <circle cx="96" cy="108" r="9" fill="#18212f"/>
-  <circle cx="144" cy="108" r="9" fill="#18212f"/>
-  <path d="M106 153c11 10 17 10 28 0" fill="none" stroke="#18212f" stroke-width="7" stroke-linecap="round"/>
-  
+
+    <ellipse cx="160" cy="270" rx="69" ry="14" fill="#172033" opacity=".12"/>
+    <path d="M160 67c-50 0-72 54-65 122 6 54 29 75 65 75s59-21 65-75c7-68-15-122-65-122Z" fill="#b67845" stroke="#172033" stroke-width="10"/>
+    <path d="M159 70q-6-39 22-50 9 29-22 50Z" fill="#78c96b" stroke="#172033" stroke-width="8"/>
+    <path d="M115 145q45-37 90 0M126 213q34 22 68 0" fill="none" stroke="#f1d29a" stroke-width="9" stroke-linecap="round"/>
+    <circle cx="160" cy="175" r="17" fill="#f1d29a" stroke="#172033" stroke-width="6"/>
 </svg>
