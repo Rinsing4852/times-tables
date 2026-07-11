@@ -7,7 +7,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.adaptive import question_for_fact
 from app.database import Base, get_db
-from app.main import app
+from app.main import _login_failures, app
 from app.models import Fact, LearningSessionQuestion, User
 from app.seed import seed_facts
 
@@ -43,7 +43,7 @@ def api(tmp_path: Path):
 
 
 def create_admin(client: TestClient) -> dict:
-    response = client.post("/users", json={"name": "Parent", "password": "2468"})
+    response = client.post("/users", json={"name": "Parent", "password": "246824"})
     assert response.status_code == 200
     return response.json()
 
@@ -60,7 +60,7 @@ def test_admin_routes_require_the_logged_in_admin(api) -> None:
     assert client.get(f"/admin/{admin['id']}/users").status_code == 401
     assert client.post("/auth/login", json={"user_id": admin["id"], "password": "wrong"}).status_code == 401
 
-    login(client, admin["id"], "2468")
+    login(client, admin["id"], "246824")
     child = client.post(f"/admin/{admin['id']}/users", json={"name": "Learner"}).json()
     assert client.get(f"/admin/{admin['id']}/users").status_code == 200
 
@@ -74,13 +74,13 @@ def test_first_admin_requires_a_passcode(api) -> None:
     client, _ = api
     response = client.post("/users", json={"name": "Parent"})
     assert response.status_code == 400
-    assert "at least 4" in response.json()["detail"]
+    assert "at least 6" in response.json()["detail"]
 
 
 def test_admin_backup_is_a_sqlite_snapshot(api) -> None:
     client, _ = api
     admin = create_admin(client)
-    login(client, admin["id"], "2468")
+    login(client, admin["id"], "246824")
 
     response = client.get(f"/admin/{admin['id']}/backup")
     assert response.status_code == 200
@@ -91,7 +91,7 @@ def test_admin_backup_is_a_sqlite_snapshot(api) -> None:
 def test_admin_promotion_requires_a_passcode(api) -> None:
     client, _ = api
     admin = create_admin(client)
-    login(client, admin["id"], "2468")
+    login(client, admin["id"], "246824")
     child = client.post(f"/admin/{admin['id']}/users", json={"name": "Learner"}).json()
 
     response = client.patch(
@@ -104,7 +104,7 @@ def test_admin_promotion_requires_a_passcode(api) -> None:
 def test_practice_session_awards_once_for_an_issued_question(api) -> None:
     client, testing_session = api
     admin = create_admin(client)
-    login(client, admin["id"], "2468")
+    login(client, admin["id"], "246824")
 
     started = client.post(
         "/practice/start",
@@ -134,10 +134,42 @@ def test_practice_session_awards_once_for_an_issued_question(api) -> None:
         assert user.total_questions_answered == 1
 
 
+def test_dashboard_keeps_first_recall_and_second_try_recovery_separate(api) -> None:
+    client, testing_session = api
+    admin = create_admin(client)
+    login(client, admin["id"], "246824")
+    started = client.post(
+        "/practice/start",
+        json={"user_id": admin["id"], "tables": [6], "question_mode": "mixed", "question_count": 1},
+    ).json()
+    question = client.post("/practice/question", json={"session_id": started["session_id"]}).json()
+    with testing_session() as db:
+        record = db.get(LearningSessionQuestion, question["question_id"])
+        fact = db.get(Fact, record.fact_id)
+        _, correct_answer = question_for_fact(fact, record.question_type)
+
+    first = client.post(
+        "/practice/answer",
+        json={"session_id": started["session_id"], "question_id": question["question_id"], "answer": "9999", "response_time_ms": 1500},
+    )
+    assert first.json()["question_complete"] is False
+    second = client.post(
+        "/practice/answer",
+        json={"session_id": started["session_id"], "question_id": question["question_id"], "answer": str(correct_answer), "response_time_ms": 700},
+    )
+    assert second.json()["session_complete"] is True
+
+    totals = client.get(f"/dashboard/{admin['id']}").json()["totals"]
+    assert totals["correct"] == 0
+    assert totals["incorrect"] == 1
+    assert totals["accuracy"] == 0
+    assert totals["second_attempt_correct"] == 1
+
+
 def test_challenge_rejects_answers_not_matching_issued_order(api) -> None:
     client, _ = api
     admin = create_admin(client)
-    login(client, admin["id"], "2468")
+    login(client, admin["id"], "246824")
     started = client.post(
         "/challenge/start",
         json={"user_id": admin["id"], "tables": [4], "question_mode": "mixed", "question_count": 2},
@@ -154,3 +186,27 @@ def test_challenge_rejects_answers_not_matching_issued_order(api) -> None:
         },
     )
     assert response.status_code == 400
+
+
+def test_challenge_avoids_repeating_facts_while_pool_is_available(api) -> None:
+    client, _ = api
+    admin = create_admin(client)
+    login(client, admin["id"], "246824")
+
+    started = client.post(
+        "/challenge/start",
+        json={"user_id": admin["id"], "tables": [4], "question_mode": "mixed", "question_count": 10},
+    ).json()
+
+    assert len({question["fact_id"] for question in started["questions"]}) == 10
+
+
+def test_login_is_rate_limited_after_repeated_failures(api) -> None:
+    client, _ = api
+    admin = create_admin(client)
+    try:
+        for _ in range(5):
+            assert client.post("/auth/login", json={"user_id": admin["id"], "password": "wrong"}).status_code == 401
+        assert client.post("/auth/login", json={"user_id": admin["id"], "password": "wrong"}).status_code == 429
+    finally:
+        _login_failures.clear()

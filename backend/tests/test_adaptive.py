@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta, timezone
 
-from app.adaptive import priority_score, question_for_fact, question_types_for_mode
+import pytest
+
+from app.adaptive import priority_score, question_for_fact, question_types_for_mode, rolling_accuracy_improvement
 from app.models import Fact, FactStat, QuestionAttempt
 
 
@@ -95,3 +97,29 @@ def test_recent_attempts_influence_priority_without_zeroing_mastered_facts():
 
     assert priority_score(stat, now, recent_attempts=recent_slow_errors) > priority_score(stat, now)
     assert priority_score(stat, now) >= 0.08
+
+
+def test_rolling_improvement_compares_first_attempt_windows() -> None:
+    attempts = [
+        QuestionAttempt(is_correct=value, attempt_number=1, response_time_ms=1000)
+        for value in [True, True, True, True, False, False, False, True, False, False]
+    ]
+    attempts.insert(2, QuestionAttempt(is_correct=True, attempt_number=2, response_time_ms=800))
+
+    assert rolling_accuracy_improvement(attempts) == pytest.approx(0.6)
+
+
+def test_second_attempt_does_not_change_recent_recall_score() -> None:
+    now = datetime.now(timezone.utc)
+    stat = FactStat(
+        first_attempt_correct=2,
+        first_attempt_total=4,
+        first_attempt_response_time_ms=12000,
+        first_attempt_response_count=4,
+        current_streak=0,
+        last_seen=now,
+    )
+    first_only = [QuestionAttempt(is_correct=False, attempt_number=1, response_time_ms=5000)]
+    with_retry = first_only + [QuestionAttempt(is_correct=True, attempt_number=2, response_time_ms=500)]
+
+    assert priority_score(stat, now, first_only) == priority_score(stat, now, with_retry)

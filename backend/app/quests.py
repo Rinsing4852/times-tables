@@ -3,14 +3,14 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from random import choice
+from random import choice, shuffle
 
 from .adaptive import QUESTION_TYPES, as_aware_utc, priority_score, question_for_fact
-from .creatures import current_week_key
+from .config import local_date
 from .models import Fact, FactStat, TrainingQuest
 
 
-APP_VERSION = "0.6.0"
+APP_VERSION = "0.7.0"
 
 
 @dataclass(frozen=True)
@@ -41,16 +41,21 @@ def parse_fact_ids(value: str | None) -> list[int]:
 def stat_accuracy(stat: FactStat | None) -> float | None:
     if not stat:
         return None
-    total = stat.correct_count + stat.incorrect_count
-    if total == 0:
+    total = stat.first_attempt_total or (stat.correct_count + stat.incorrect_count)
+    if not total:
         return None
-    return stat.correct_count / total
+    correct = stat.first_attempt_correct if stat.first_attempt_total else stat.correct_count
+    return correct / total
 
 
 def stat_avg_ms(stat: FactStat | None) -> float | None:
-    if not stat or not stat.response_count:
+    if not stat:
         return None
-    return stat.total_response_time_ms / stat.response_count
+    if stat.first_attempt_response_count:
+        return stat.first_attempt_response_time_ms / stat.first_attempt_response_count
+    if stat.response_count:
+        return stat.total_response_time_ms / stat.response_count
+    return None
 
 
 def weakest_facts(facts: list[Fact], stats_by_fact_id: dict[int, FactStat], limit: int) -> list[Fact]:
@@ -176,12 +181,23 @@ def quest_definitions(facts: list[Fact], stats_by_fact_id: dict[int, FactStat]) 
 
 
 def ensure_available_quests(user_id: int, existing: list[TrainingQuest], facts: list[Fact], stats_by_fact_id: dict[int, FactStat]) -> list[TrainingQuest]:
-    week_key = current_week_key()
-    existing_keys = {quest.quest_key for quest in existing}
+    day_key = local_date(datetime.now(timezone.utc)).isoformat()
+    existing_by_key = {quest.quest_key: quest for quest in existing}
     quests = list(existing)
+    for quest in quests:
+        if quest.status == "available" and not quest.quest_key.startswith(day_key):
+            quest.status = "expired"
     for definition in quest_definitions(facts, stats_by_fact_id):
-        quest_key = f"{week_key}-{definition.quest_type}"
-        if quest_key in existing_keys:
+        quest_key = f"{day_key}-{definition.quest_type}"
+        if quest_key in existing_by_key:
+            quest = existing_by_key[quest_key]
+            if quest.status == "available":
+                quest.title = definition.title
+                quest.description = definition.description
+                quest.target_fact_ids = dump_fact_ids(definition.fact_ids)
+                quest.question_count = definition.question_count
+                quest.reward_xp = definition.reward_xp
+                quest.reward_note = definition.reward_note
             continue
         quests.append(
             TrainingQuest(
@@ -194,6 +210,7 @@ def ensure_available_quests(user_id: int, existing: list[TrainingQuest], facts: 
                 question_count=definition.question_count,
                 reward_xp=definition.reward_xp,
                 reward_note=definition.reward_note,
+                status="available",
             )
         )
     return quests
@@ -241,8 +258,15 @@ def quest_questions(quest: TrainingQuest, facts_by_id: dict[int, Fact]) -> list[
     if not target_ids:
         return []
     questions = []
-    for index in range(quest.question_count):
-        fact = facts_by_id[target_ids[index % len(target_ids)]]
+    sequence: list[int] = []
+    while len(sequence) < quest.question_count:
+        batch = list(target_ids)
+        shuffle(batch)
+        if sequence and len(batch) > 1 and batch[0] == sequence[-1]:
+            batch[0], batch[1] = batch[1], batch[0]
+        sequence.extend(batch)
+    for fact_id in sequence[: quest.question_count]:
+        fact = facts_by_id[fact_id]
         question_type = question_type_for_quest(quest.quest_type)
         prompt, _ = question_for_fact(fact, question_type)
         questions.append(

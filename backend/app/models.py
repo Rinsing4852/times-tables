@@ -101,6 +101,8 @@ class FactStat(Base):
     second_attempt_total: Mapped[int] = mapped_column(Integer, default=0)
     total_response_time_ms: Mapped[int] = mapped_column(Integer, default=0)
     response_count: Mapped[int] = mapped_column(Integer, default=0)
+    first_attempt_response_time_ms: Mapped[int] = mapped_column(Integer, default=0)
+    first_attempt_response_count: Mapped[int] = mapped_column(Integer, default=0)
     current_streak: Mapped[int] = mapped_column(Integer, default=0)
     last_seen: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     last_failed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)

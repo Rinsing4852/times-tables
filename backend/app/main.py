@@ -7,6 +7,8 @@ import os
 import secrets
 import sqlite3
 import tempfile
+import threading
+import time
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -17,7 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from starlette.background import BackgroundTask
 from starlette.responses import FileResponse
-from sqlalchemy import desc, func, inspect, select, text
+from sqlalchemy import desc, func, select, text
 from sqlalchemy.orm import Session
 
 from .adaptive import (
@@ -27,6 +29,7 @@ from .adaptive import (
     heat_colour_speed,
     normalize_answer,
     priority_score,
+    rolling_accuracy_improvement,
     question_types_for_mode,
     question_for_fact,
 )
@@ -41,7 +44,9 @@ from .creatures import (
     sync_level_and_stage,
     unlock_cosmetics,
 )
+from .config import local_date
 from .database import Base, SessionLocal, engine, get_db
+from .migrations import run_migrations
 from .models import (
     AuthSession,
     ChallengeAttempt,
@@ -73,12 +78,17 @@ from .seed import seed_facts
 SESSION_COOKIE = "recall_forge_session"
 SESSION_DAYS = 30
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
+ADMIN_PASSWORD_MIN_LENGTH = int(os.getenv("ADMIN_PASSWORD_MIN_LENGTH", "6"))
+LOGIN_WINDOW_SECONDS = 5 * 60
+LOGIN_MAX_FAILURES = 5
+_login_failures: dict[tuple[str, int], list[float]] = defaultdict(list)
+_login_lock = threading.Lock()
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     Base.metadata.create_all(bind=engine)
-    migrate_user_creature_columns()
+    run_migrations(engine)
     with SessionLocal() as db:
         seed_facts(db)
     yield
@@ -93,43 +103,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-def migrate_user_creature_columns() -> None:
-    inspector = inspect(engine)
-    if not inspector.has_table("users"):
-        return
-    existing = {column["name"] for column in inspector.get_columns("users")}
-    migrations = {
-        "creature_type": "ALTER TABLE users ADD COLUMN creature_type VARCHAR(32) NOT NULL DEFAULT 'Blob'",
-        "is_admin": "ALTER TABLE users ADD COLUMN is_admin BOOLEAN NOT NULL DEFAULT 0",
-        "password_hash": "ALTER TABLE users ADD COLUMN password_hash VARCHAR(128)",
-        "password_salt": "ALTER TABLE users ADD COLUMN password_salt VARCHAR(32)",
-        "password_updated_at": "ALTER TABLE users ADD COLUMN password_updated_at DATETIME",
-        "creature_name": "ALTER TABLE users ADD COLUMN creature_name VARCHAR(80) NOT NULL DEFAULT 'Buddy'",
-        "energy": "ALTER TABLE users ADD COLUMN energy INTEGER NOT NULL DEFAULT 60",
-        "last_practised_at": "ALTER TABLE users ADD COLUMN last_practised_at DATETIME",
-        "total_questions_answered": "ALTER TABLE users ADD COLUMN total_questions_answered INTEGER NOT NULL DEFAULT 0",
-        "total_sessions_completed": "ALTER TABLE users ADD COLUMN total_sessions_completed INTEGER NOT NULL DEFAULT 0",
-        "xp": "ALTER TABLE users ADD COLUMN xp INTEGER NOT NULL DEFAULT 0",
-        "level": "ALTER TABLE users ADD COLUMN level INTEGER NOT NULL DEFAULT 1",
-        "stage": "ALTER TABLE users ADD COLUMN stage VARCHAR(32) NOT NULL DEFAULT 'Egg'",
-        "unlocked_cosmetics": "ALTER TABLE users ADD COLUMN unlocked_cosmetics VARCHAR(512) NOT NULL DEFAULT '[\"starter-star\"]'",
-        "selected_cosmetic": "ALTER TABLE users ADD COLUMN selected_cosmetic VARCHAR(64) NOT NULL DEFAULT 'starter-star'",
-        "weekly_practice_days": "ALTER TABLE users ADD COLUMN weekly_practice_days VARCHAR(256) NOT NULL DEFAULT '[]'",
-        "last_weekly_reset_at": "ALTER TABLE users ADD COLUMN last_weekly_reset_at DATETIME",
-        "weekly_goal_awarded_week": "ALTER TABLE users ADD COLUMN weekly_goal_awarded_week VARCHAR(16) NOT NULL DEFAULT ''",
-    }
-    with engine.begin() as connection:
-        for column, statement in migrations.items():
-            if column not in existing:
-                connection.execute(text(statement))
-        connection.execute(
-            text(
-                "UPDATE users SET is_admin = 1 WHERE id = (SELECT id FROM users ORDER BY created_at, id LIMIT 1) "
-                "AND NOT EXISTS (SELECT 1 FROM users WHERE is_admin = 1)"
-            )
-        )
 
 
 def get_user(db: Session, user_id: int) -> User:
@@ -216,8 +189,8 @@ def create_local_user(db: Session, payload: UserCreate, allow_admin: bool) -> Us
         raise HTTPException(status_code=400, detail="Name already exists")
     has_users = db.scalar(select(User.id).limit(1)) is not None
     is_admin = not has_users or (allow_admin and payload.is_admin)
-    if is_admin and len(payload.password or "") < 4:
-        raise HTTPException(status_code=400, detail="Admin passcodes must be at least 4 characters")
+    if is_admin and len(payload.password or "") < ADMIN_PASSWORD_MIN_LENGTH:
+        raise HTTPException(status_code=400, detail=f"Admin passcodes must be at least {ADMIN_PASSWORD_MIN_LENGTH} characters")
     user = User(name=name, is_admin=is_admin)
     set_user_password(user, payload.password if allow_admin or not has_users else None)
     db.add(user)
@@ -250,7 +223,7 @@ def learning_question_payload(question: LearningSessionQuestion) -> dict:
     }
 
 
-def recent_attempts_by_fact(db: Session, user_id: int, limit: int = 800) -> dict[int, list[QuestionAttempt]]:
+def recent_attempts_by_fact(db: Session, user_id: int, limit: int = 1500) -> dict[int, list[QuestionAttempt]]:
     attempts = db.scalars(
         select(QuestionAttempt).where(QuestionAttempt.user_id == user_id).order_by(desc(QuestionAttempt.created_at)).limit(limit)
     ).all()
@@ -298,16 +271,19 @@ def record_stat(stat: FactStat, is_correct: bool, attempt_number: int, response_
     now = datetime.now(timezone.utc)
     if is_correct:
         stat.correct_count += 1
-        stat.current_streak += 1
     else:
         stat.incorrect_count += 1
-        stat.current_streak = 0
         stat.last_failed_at = now
 
     if attempt_number == 1:
         stat.first_attempt_total += 1
+        stat.first_attempt_response_time_ms += response_time_ms
+        stat.first_attempt_response_count += 1
         if is_correct:
             stat.first_attempt_correct += 1
+            stat.current_streak += 1
+        else:
+            stat.current_streak = 0
     elif attempt_number == 2:
         stat.second_attempt_total += 1
         if is_correct:
@@ -318,19 +294,45 @@ def record_stat(stat: FactStat, is_correct: bool, attempt_number: int, response_
     stat.last_seen = now
 
 
-def learning_event_for_stat(stat: FactStat, is_correct: bool, question_type: str) -> dict:
-    total = stat.correct_count + stat.incorrect_count
-    previous_accuracy = stat.correct_count / total if total else None
-    previous_error_rate = stat.incorrect_count / total if total else 0
-    next_correct = stat.correct_count + int(is_correct)
-    next_incorrect = stat.incorrect_count + int(not is_correct)
-    next_total = next_correct + next_incorrect
-    next_accuracy = next_correct / next_total if next_total else 0
+def learning_event_for_stat(
+    stat: FactStat,
+    is_correct: bool,
+    question_type: str,
+    attempt_number: int,
+    recent_attempts: list[QuestionAttempt] | None = None,
+) -> dict:
+    previous_error_rate = 1 - (stat.first_attempt_correct / stat.first_attempt_total) if stat.first_attempt_total else 0
+    projected = list(recent_attempts or [])
+    projected.insert(0, QuestionAttempt(is_correct=is_correct, attempt_number=attempt_number, response_time_ms=0))
+    improvement = rolling_accuracy_improvement(projected)
     return {
-        "practiced_weak_fact": total >= 3 and previous_error_rate >= 0.35,
-        "improved_fact_accuracy": bool(is_correct and previous_accuracy is not None and next_accuracy > previous_accuracy),
+        "practiced_weak_fact": attempt_number == 1 and stat.first_attempt_total >= 3 and previous_error_rate >= 0.35,
+        "improved_fact_accuracy": bool(attempt_number == 1 and improvement is not None and improvement >= 0.2),
         "practiced_division": question_type.startswith("divide_"),
     }
+
+
+def login_failure_key(request: Request, user_id: int) -> tuple[str, int]:
+    return (request.client.host if request.client else "unknown", user_id)
+
+
+def check_login_rate_limit(request: Request, user_id: int) -> None:
+    key = login_failure_key(request, user_id)
+    cutoff = time.monotonic() - LOGIN_WINDOW_SECONDS
+    with _login_lock:
+        failures = [timestamp for timestamp in _login_failures[key] if timestamp >= cutoff]
+        _login_failures[key] = failures
+        if len(failures) >= LOGIN_MAX_FAILURES:
+            raise HTTPException(status_code=429, detail="Too many login attempts. Try again in a few minutes.")
+
+
+def record_login_result(request: Request, user_id: int, succeeded: bool) -> None:
+    key = login_failure_key(request, user_id)
+    with _login_lock:
+        if succeeded:
+            _login_failures.pop(key, None)
+        else:
+            _login_failures[key].append(time.monotonic())
 
 
 @app.get("/health")
@@ -344,12 +346,17 @@ def version() -> dict:
 
 
 @app.post("/auth/login")
-def login(payload: LoginRequest, response: Response, db: Session = Depends(get_db)) -> dict:
+def login(payload: LoginRequest, request: Request, response: Response, db: Session = Depends(get_db)) -> dict:
+    check_login_rate_limit(request, payload.user_id)
     user = get_user(db, payload.user_id)
     if not password_matches(user, payload.password):
+        record_login_result(request, payload.user_id, False)
         raise HTTPException(status_code=401, detail="Incorrect passcode")
+    record_login_result(request, payload.user_id, True)
     token = secrets.token_urlsafe(32)
-    expires_at = datetime.now(timezone.utc) + timedelta(days=SESSION_DAYS)
+    now = datetime.now(timezone.utc)
+    db.query(AuthSession).filter(AuthSession.expires_at <= now).delete(synchronize_session=False)
+    expires_at = now + timedelta(days=SESSION_DAYS)
     db.add(AuthSession(user_id=user.id, token_hash=token_digest(token), expires_at=expires_at))
     db.commit()
     response.set_cookie(
@@ -438,12 +445,12 @@ def admin_update_user(admin_user_id: int, target_user_id: int, payload: UserAdmi
             admin_count = db.scalar(select(func.count()).select_from(User).where(User.is_admin == True))  # noqa: E712
             if admin_count and admin_count <= 1:
                 raise HTTPException(status_code=400, detail="At least one admin is required")
-        if payload.is_admin and not user.password_hash and len(payload.password or "") < 4:
+        if payload.is_admin and not user.password_hash and len(payload.password or "") < ADMIN_PASSWORD_MIN_LENGTH:
             raise HTTPException(status_code=400, detail="Set a passcode before making this profile an admin")
         user.is_admin = payload.is_admin
     if payload.password is not None:
-        if user.is_admin and len(payload.password) < 4:
-            raise HTTPException(status_code=400, detail="Admin passcodes must be at least 4 characters")
+        if user.is_admin and len(payload.password) < ADMIN_PASSWORD_MIN_LENGTH:
+            raise HTTPException(status_code=400, detail=f"Admin passcodes must be at least {ADMIN_PASSWORD_MIN_LENGTH} characters")
         set_user_password(user, payload.password)
         db.query(AuthSession).filter(AuthSession.user_id == user.id).delete(synchronize_session=False)
     db.commit()
@@ -609,7 +616,7 @@ def award_learning_session(db: Session, learning_session: LearningSession, user:
     previous_level, previous_stage, _, _ = sync_level_and_stage(user)
     energy_gained = energy_gain_for_questions(learning_session.completed_questions)
     current_energy = decayed_energy(user, now)
-    energy_overflow_xp = max((current_energy + energy_gained) - 100, 0)
+    full_energy_bonus_xp = 5 if current_energy >= 100 else 0
     weekly_days_completed, weekly_goal_completed = add_weekly_practice_day(user, now)
     xp_gained, reward_reasons = session_rewards(
         mode="challenge" if learning_session.mode == "challenge" else "practice",
@@ -627,9 +634,9 @@ def award_learning_session(db: Session, learning_session: LearningSession, user:
         quest.completed_at = now
         xp_gained += quest.reward_xp
         reward_reasons.append(f"{quest.title} +{quest.reward_xp} XP")
-    if energy_overflow_xp:
-        xp_gained += energy_overflow_xp
-        reward_reasons.append(f"Full-energy training bonus +{energy_overflow_xp} XP")
+    if full_energy_bonus_xp:
+        xp_gained += full_energy_bonus_xp
+        reward_reasons.append(f"Full-energy training bonus +{full_energy_bonus_xp} XP")
     user.energy = min(100, current_energy + energy_gained)
     user.xp = (user.xp or 0) + xp_gained
     user.last_practised_at = now
@@ -686,7 +693,7 @@ def list_training_quests(user_id: int, db: Session = Depends(get_db), current_us
             db.add(quest)
     db.commit()
     refreshed = db.scalars(select(TrainingQuest).where(TrainingQuest.user_id == user_id).order_by(desc(TrainingQuest.generated_at))).all()
-    active = [quest for quest in refreshed if quest.status != "completed"][:6]
+    active = [quest for quest in refreshed if quest.status == "available"][:7]
     completed = [quest for quest in refreshed if quest.status == "completed"][:6]
     return {"quests": [quest_payload(quest) for quest in active], "completed": [quest_payload(quest) for quest in completed]}
 
@@ -698,8 +705,8 @@ def start_training_quest(user_id: int, quest_id: int, db: Session = Depends(get_
     quest = db.get(TrainingQuest, quest_id)
     if not quest or quest.user_id != user_id:
         raise HTTPException(status_code=404, detail="Quest not found")
-    if quest.status == "completed":
-        raise HTTPException(status_code=409, detail="Quest is already complete")
+    if quest.status != "available":
+        raise HTTPException(status_code=409, detail="Quest is no longer available")
     facts = db.scalars(select(Fact)).all()
     questions = quest_questions(quest, {fact.id: fact for fact in facts})
     if not questions:
@@ -788,7 +795,14 @@ def next_practice_question(payload: PracticeQuestionRequest, db: Session = Depen
     stats = db.scalars(select(FactStat).where(FactStat.user_id == learning_session.user_id)).all()
     stats_by_fact_id = {stat.fact_id: stat for stat in stats}
     recent_by_fact_id = recent_attempts_by_fact(db, learning_session.user_id)
-    fact = choose_fact(facts, stats_by_fact_id, recent_by_fact_id)
+    previous_fact_id = db.scalar(
+        select(LearningSessionQuestion.fact_id)
+        .where(LearningSessionQuestion.session_id == learning_session.id, LearningSessionQuestion.completed == True)  # noqa: E712
+        .order_by(desc(LearningSessionQuestion.position))
+        .limit(1)
+    )
+    available = [fact for fact in facts if fact.id != previous_fact_id] if len(facts) > 1 else facts
+    fact = choose_fact(available, stats_by_fact_id, recent_by_fact_id)
     question_type = choice(question_types_for_mode(learning_session.question_mode, tables))
     prompt, _ = question_for_fact(fact, question_type)
     question = LearningSessionQuestion(
@@ -821,6 +835,7 @@ def answer_practice_question(payload: PracticeAnswer, db: Session = Depends(get_
     prompt, correct_answer = question_for_fact(fact, question.question_type)
     normalized = normalize_answer(payload.answer)
     is_correct = normalized == correct_answer
+    recent_for_fact = recent_attempts_by_fact(db, learning_session.user_id).get(fact.id, [])
     attempt = QuestionAttempt(
         user_id=learning_session.user_id,
         fact_id=fact.id,
@@ -835,7 +850,7 @@ def answer_practice_question(payload: PracticeAnswer, db: Session = Depends(get_
     )
     db.add(attempt)
     stat = get_or_create_stat(db, learning_session.user_id, fact.id)
-    learning_event = learning_event_for_stat(stat, is_correct, question.question_type)
+    learning_event = learning_event_for_stat(stat, is_correct, question.question_type, attempt_number, recent_for_fact)
     record_stat(stat, is_correct, attempt_number, payload.response_time_ms)
     question.attempts = attempt_number
     question_complete = is_correct or attempt_number == 2
@@ -902,8 +917,16 @@ def start_challenge(payload: ChallengeStart, db: Session = Depends(get_db), curr
     db.add(learning_session)
     db.flush()
     questions = []
+    unused_fact_ids = {fact.id for fact in facts}
     for position in range(payload.question_count):
-        fact = choose_fact(facts, stats_by_fact_id, recent_by_fact_id)
+        available = [fact for fact in facts if fact.id in unused_fact_ids]
+        if not available:
+            unused_fact_ids = {fact.id for fact in facts}
+            if questions and len(facts) > 1:
+                unused_fact_ids.discard(questions[-1].fact_id)
+            available = [fact for fact in facts if fact.id in unused_fact_ids]
+        fact = choose_fact(available, stats_by_fact_id, recent_by_fact_id)
+        unused_fact_ids.discard(fact.id)
         question_type = choice(question_types_for_mode(payload.question_mode, payload.tables))
         prompt, _ = question_for_fact(fact, question_type)
         question = LearningSessionQuestion(
@@ -958,6 +981,7 @@ def submit_challenge(payload: ChallengeSubmit, db: Session = Depends(get_db), cu
             raise HTTPException(status_code=404, detail="Fact not found")
         prompt, correct_answer = question_for_fact(fact, question.question_type)
         is_correct = normalize_answer(answer.answer) == correct_answer
+        recent_for_fact = recent_attempts_by_fact(db, learning_session.user_id).get(fact.id, [])
         correct_count += int(is_correct)
         first_attempt_correct += int(is_correct)
         db.add(
@@ -987,7 +1011,7 @@ def submit_challenge(payload: ChallengeSubmit, db: Session = Depends(get_db), cu
             )
         )
         stat = get_or_create_stat(db, learning_session.user_id, fact.id)
-        learning_event = learning_event_for_stat(stat, is_correct, question.question_type)
+        learning_event = learning_event_for_stat(stat, is_correct, question.question_type, 1, recent_for_fact)
         practiced_weak_fact = practiced_weak_fact or learning_event["practiced_weak_fact"]
         improved_fact_accuracy = improved_fact_accuracy or learning_event["improved_fact_accuracy"]
         practiced_division = practiced_division or learning_event["practiced_division"]
@@ -1068,16 +1092,23 @@ def dashboard(user_id: int, db: Session = Depends(get_db), current_user: User = 
     facts = db.scalars(select(Fact).order_by(Fact.a, Fact.b)).all()
     stats = db.scalars(select(FactStat).where(FactStat.user_id == user_id)).all()
     stats_by_fact_id = {stat.fact_id: stat for stat in stats}
+    recent_by_fact_id = recent_attempts_by_fact(db, user_id)
 
     cells = []
     for fact in facts:
         stat = stats_by_fact_id.get(fact.id)
         avg_ms = None
         correct = incorrect = 0
+        second_correct = second_total = 0
         if stat:
-            correct = stat.correct_count
-            incorrect = stat.incorrect_count
-            avg_ms = stat.total_response_time_ms / stat.response_count if stat.response_count else None
+            correct = stat.first_attempt_correct
+            incorrect = max(stat.first_attempt_total - stat.first_attempt_correct, 0)
+            second_correct = stat.second_attempt_correct
+            second_total = stat.second_attempt_total
+            if stat.first_attempt_response_count:
+                avg_ms = stat.first_attempt_response_time_ms / stat.first_attempt_response_count
+            elif stat.response_count:
+                avg_ms = stat.total_response_time_ms / stat.response_count
         cells.append(
             {
                 "fact_id": fact.id,
@@ -1088,9 +1119,12 @@ def dashboard(user_id: int, db: Session = Depends(get_db), current_user: User = 
                 "speed_colour": heat_colour_speed(avg_ms),
                 "correct_count": correct,
                 "incorrect_count": incorrect,
+                "second_attempt_correct": second_correct,
+                "second_attempt_total": second_total,
                 "accuracy": round(correct / (correct + incorrect), 3) if correct + incorrect else None,
                 "average_time_ms": round(avg_ms) if avg_ms is not None else None,
-                "priority_score": round(priority_score(stat), 3),
+                "priority_score": round(priority_score(stat, recent_attempts=recent_by_fact_id.get(fact.id, [])), 3),
+                "improvement_delta": rolling_accuracy_improvement(recent_by_fact_id.get(fact.id, [])),
                 "last_seen": stat.last_seen.isoformat() if stat and stat.last_seen else None,
             }
         )
@@ -1101,6 +1135,8 @@ def dashboard(user_id: int, db: Session = Depends(get_db), current_user: User = 
     totals = {
         "correct": sum(cell["correct_count"] for cell in cells),
         "incorrect": sum(cell["incorrect_count"] for cell in cells),
+        "second_attempt_correct": sum(cell["second_attempt_correct"] for cell in cells),
+        "second_attempt_total": sum(cell["second_attempt_total"] for cell in cells),
     }
     total_answers = totals["correct"] + totals["incorrect"]
     totals["accuracy"] = round(totals["correct"] / total_answers, 3) if total_answers else None
@@ -1110,13 +1146,23 @@ def dashboard(user_id: int, db: Session = Depends(get_db), current_user: User = 
         table_cells = [cell for cell in cells if cell["a"] == table]
         correct = sum(cell["correct_count"] for cell in table_cells)
         incorrect = sum(cell["incorrect_count"] for cell in table_cells)
-        avg_times = [cell["average_time_ms"] for cell in table_cells if cell["average_time_ms"] is not None]
+        table_fact_ids = {cell["fact_id"] for cell in table_cells}
+        speed_total = sum(
+            stat.first_attempt_response_time_ms
+            for stat in stats
+            if stat.fact_id in table_fact_ids and stat.first_attempt_response_count
+        )
+        speed_count = sum(
+            stat.first_attempt_response_count
+            for stat in stats
+            if stat.fact_id in table_fact_ids and stat.first_attempt_response_count
+        )
         total = correct + incorrect
         table_stats.append(
             {
                 "table": table,
                 "accuracy": round(correct / total, 3) if total else None,
-                "average_time_ms": round(sum(avg_times) / len(avg_times)) if avg_times else None,
+                "average_time_ms": round(speed_total / speed_count) if speed_count else None,
                 "answers": total,
             }
         )
@@ -1126,8 +1172,8 @@ def dashboard(user_id: int, db: Session = Depends(get_db), current_user: User = 
         key=lambda item: ((item["correct_count"] + item["incorrect_count"]), item["last_seen"] or ""),
     )[:8]
     improving = sorted(
-        [cell for cell in cells if cell["correct_count"] + cell["incorrect_count"] > 0],
-        key=lambda item: (item["priority_score"], -(item["accuracy"] or 0)),
+        [cell for cell in cells if cell["improvement_delta"] is not None and cell["improvement_delta"] > 0],
+        key=lambda item: (-item["improvement_delta"], -((item["accuracy"] or 0))),
     )[:8]
     recent_attempts = db.scalars(
         select(QuestionAttempt).where(QuestionAttempt.user_id == user_id).order_by(desc(QuestionAttempt.created_at)).limit(12)
@@ -1142,31 +1188,27 @@ def dashboard(user_id: int, db: Session = Depends(get_db), current_user: User = 
         }
         for attempt in recent_attempts
     ]
-    daily_rows = db.execute(
-        text(
-            """
-            SELECT substr(created_at, 1, 10) AS day,
-                   count(*) AS attempts,
-                   sum(CASE WHEN is_correct THEN 1 ELSE 0 END) AS correct,
-                   avg(response_time_ms) AS average_time_ms
-            FROM question_attempts
-            WHERE user_id = :user_id
-            GROUP BY substr(created_at, 1, 10)
-            ORDER BY day DESC
-            LIMIT 30
-            """
-        ),
-        {"user_id": user_id},
+    progress_attempts = db.scalars(
+        select(QuestionAttempt)
+        .where(QuestionAttempt.user_id == user_id, QuestionAttempt.attempt_number == 1)
+        .order_by(desc(QuestionAttempt.created_at))
+        .limit(5000)
     ).all()
+    daily: dict[str, dict[str, int]] = defaultdict(lambda: {"attempts": 0, "correct": 0, "total_time_ms": 0})
+    for attempt in progress_attempts:
+        day = local_date(attempt.created_at).isoformat()
+        daily[day]["attempts"] += 1
+        daily[day]["correct"] += int(attempt.is_correct)
+        daily[day]["total_time_ms"] += attempt.response_time_ms
     progress_over_time = [
         {
-            "date": row.day,
-            "attempts": row.attempts,
-            "correct": row.correct or 0,
-            "accuracy": round((row.correct or 0) / row.attempts, 3) if row.attempts else None,
-            "average_time_ms": round(row.average_time_ms) if row.average_time_ms is not None else None,
+            "date": day,
+            "attempts": values["attempts"],
+            "correct": values["correct"],
+            "accuracy": round(values["correct"] / values["attempts"], 3),
+            "average_time_ms": round(values["total_time_ms"] / values["attempts"]),
         }
-        for row in reversed(daily_rows)
+        for day, values in sorted(daily.items())[-30:]
     ]
     return {
         "totals": totals,

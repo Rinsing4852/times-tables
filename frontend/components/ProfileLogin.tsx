@@ -40,7 +40,7 @@ export function ProfileLogin({
         <p>This first profile will manage learners, backups and settings.</p>
         <form className="loginForm" onSubmit={onCreate}>
           <input value={name} onChange={(event) => onNameChange(event.target.value)} placeholder="Parent name" autoComplete="name" />
-          <input value={password} onChange={(event) => onPasswordChange(event.target.value)} placeholder="Admin passcode (4+ characters)" type="password" autoComplete="new-password" minLength={4} required />
+          <input value={password} onChange={(event) => onPasswordChange(event.target.value)} placeholder="Admin passcode (6+ characters)" type="password" autoComplete="new-password" minLength={6} required />
           <button type="submit">Create profile</button>
         </form>
       </section>

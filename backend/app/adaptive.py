@@ -65,9 +65,10 @@ def normalize_answer(answer: str) -> int | None:
 
 
 def recent_attempt_score(recent_attempts: list[QuestionAttempt]) -> float | None:
-    if not recent_attempts:
+    first_attempts = [attempt for attempt in recent_attempts if attempt.attempt_number == 1]
+    if not first_attempts:
         return None
-    window = recent_attempts[:10]
+    window = first_attempts[:10]
     total = len(window)
     errors = sum(1 for attempt in window if not attempt.is_correct)
     avg_ms = sum(attempt.response_time_ms for attempt in window) / total
@@ -78,13 +79,18 @@ def recent_attempt_score(recent_attempts: list[QuestionAttempt]) -> float | None
 
 def priority_score(stat: FactStat | None, now: datetime | None = None, recent_attempts: list[QuestionAttempt] | None = None) -> float:
     now = as_aware_utc(now or datetime.now(timezone.utc))
-    if stat is None or (stat.correct_count + stat.incorrect_count) == 0:
+    if stat is None or (stat.first_attempt_total == 0 and (stat.correct_count + stat.incorrect_count) == 0):
         return 2.4
 
-    total = stat.correct_count + stat.incorrect_count
-    error_rate = stat.incorrect_count / total
+    retrieval_total = stat.first_attempt_total or (stat.correct_count + stat.incorrect_count)
+    retrieval_correct = stat.first_attempt_correct if stat.first_attempt_total else stat.correct_count
+    error_rate = 1 - (retrieval_correct / retrieval_total)
 
-    avg_ms = stat.total_response_time_ms / stat.response_count if stat.response_count else 5000
+    avg_ms = (
+        stat.first_attempt_response_time_ms / stat.first_attempt_response_count
+        if stat.first_attempt_response_count
+        else stat.total_response_time_ms / stat.response_count if stat.response_count else 5000
+    )
     slowness_score = min(max((avg_ms - 2500) / 5000, 0), 1)
 
     if stat.last_seen:
@@ -116,6 +122,17 @@ def choose_fact(
         for fact in facts
     ]
     return choices(facts, weights=weights, k=1)[0]
+
+
+def rolling_accuracy_improvement(recent_attempts: list[QuestionAttempt], window_size: int = 5) -> float | None:
+    first_attempts = [attempt for attempt in recent_attempts if attempt.attempt_number == 1]
+    if len(first_attempts) < window_size * 2:
+        return None
+    recent = first_attempts[:window_size]
+    previous = first_attempts[window_size : window_size * 2]
+    recent_accuracy = sum(attempt.is_correct for attempt in recent) / len(recent)
+    previous_accuracy = sum(attempt.is_correct for attempt in previous) / len(previous)
+    return recent_accuracy - previous_accuracy
 
 
 def heat_colour_accuracy(correct: int, incorrect: int) -> str:

@@ -4,6 +4,7 @@ import json
 from datetime import datetime, timezone
 
 from .adaptive import as_aware_utc
+from .config import local_date
 from .models import User
 
 
@@ -77,7 +78,7 @@ def decayed_energy(user: User, now: datetime | None = None) -> int:
     if not user.last_practised_at:
         return energy
 
-    days_since_practice = int((now.date() - as_aware_utc(user.last_practised_at).date()).days)
+    days_since_practice = int((local_date(now) - local_date(as_aware_utc(user.last_practised_at))).days)
     decay = max(days_since_practice, 0) * 20
     return max(20, energy - decay)
 
@@ -100,7 +101,7 @@ def creature_status(name: str, energy: int) -> str:
 
 def current_week_key(now: datetime | None = None) -> str:
     now = as_aware_utc(now or datetime.now(timezone.utc))
-    year, week, _ = now.isocalendar()
+    year, week, _ = local_date(now).isocalendar()
     return f"{year}-W{week:02d}"
 
 
@@ -126,7 +127,7 @@ def weekly_days_for_current_week(user: User, now: datetime | None = None) -> lis
 
 def add_weekly_practice_day(user: User, now: datetime) -> tuple[int, bool]:
     week_key = current_week_key(now)
-    day_key = f"{week_key}-{now.date().isoformat()}"
+    day_key = f"{week_key}-{local_date(now).isoformat()}"
     days = weekly_days_for_current_week(user, now)
     if day_key not in days:
         days.append(day_key)

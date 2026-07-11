@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 from app.models import Fact, FactStat, TrainingQuest
-from app.quests import quest_completion_is_valid, quest_definitions, quest_questions, weakest_facts
+from app.quests import ensure_available_quests, quest_completion_is_valid, quest_definitions, quest_questions, weakest_facts
 
 
 def make_fact(fact_id: int, a: int, b: int) -> Fact:
@@ -67,3 +67,24 @@ def test_quest_completion_requires_matching_count_and_target_facts() -> None:
     assert not quest_completion_is_valid(quest, 2, [1, 2, 3])
     assert not quest_completion_is_valid(quest, 3, [1, 2])
     assert not quest_completion_is_valid(quest, 3, [1, 2, 99])
+
+
+def test_old_unfinished_quests_expire_when_daily_quests_refresh() -> None:
+    facts = [make_fact(index, 2, index + 1) for index in range(1, 8)]
+    old = TrainingQuest(
+        id=1,
+        user_id=1,
+        quest_key="2020-01-01-tricky",
+        quest_type="tricky",
+        title="Old quest",
+        description="Old targets",
+        target_fact_ids="[1]",
+        question_count=8,
+        reward_xp=25,
+        status="available",
+    )
+
+    quests = ensure_available_quests(1, [old], facts, {})
+
+    assert old.status == "expired"
+    assert len([quest for quest in quests if quest.status == "available"]) == 7

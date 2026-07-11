@@ -72,10 +72,12 @@ type DashboardCell = {
   average_time_ms: number | null;
   correct_count: number;
   incorrect_count: number;
+  second_attempt_correct: number;
+  second_attempt_total: number;
   priority_score: number;
 };
 type Dashboard = {
-  totals: { correct: number; incorrect: number; accuracy: number | null };
+  totals: { correct: number; incorrect: number; accuracy: number | null; second_attempt_correct: number; second_attempt_total: number };
   cells: DashboardCell[];
   strengths: DashboardCell[];
   weaknesses: DashboardCell[];
@@ -285,6 +287,18 @@ export default function Home() {
     api<{ version: string }>("/version").then((data) => setAppVersion(data.version)).catch(() => setAppVersion(""));
   }, []);
 
+  useEffect(() => {
+    const handleExpiredSession = () => {
+      setActiveUser(null);
+      setCreature(null);
+      setQuests([]);
+      setDashboard(null);
+      setStatus("Your session expired. Please choose your profile again.");
+    };
+    window.addEventListener("recall-forge:auth-expired", handleExpiredSession);
+    return () => window.removeEventListener("recall-forge:auth-expired", handleExpiredSession);
+  }, []);
+
   async function login(userId: number, password: string) {
     setLoginError("");
     try {
@@ -295,8 +309,8 @@ export default function Home() {
       setActiveUser(loggedIn);
       setDashboardUserId(loggedIn.id);
       setTab("home");
-    } catch {
-      setLoginError("That passcode was not accepted.");
+    } catch (error) {
+      setLoginError(error instanceof Error ? error.message : "That passcode was not accepted.");
     }
   }
 
@@ -313,7 +327,11 @@ export default function Home() {
 
   useEffect(() => {
     if (activeUser && dashboardUserId && tab === "dashboard") {
-      api<Dashboard>(`/dashboard/${dashboardUserId}`).then(setDashboard).catch((error) => setStatus(error.message));
+      let cancelled = false;
+      api<Dashboard>(`/dashboard/${dashboardUserId}`)
+        .then((data) => { if (!cancelled) setDashboard(data); })
+        .catch((error) => { if (!cancelled) setStatus(error.message); });
+      return () => { cancelled = true; };
     }
   }, [activeUser, dashboardUserId, tab]);
 
@@ -334,10 +352,20 @@ export default function Home() {
       setCreature(null);
       return;
     }
-    api<Creature>(`/users/${activeUser.id}/creature`).then(setCreature).catch((error) => setStatus(error.message));
-    loadQuests(activeUser.id).catch((error) => setStatus(error.message));
-    loadAdminUsers().catch((error) => setStatus(error.message));
-  }, [activeUser, loadQuests, loadAdminUsers]);
+    let cancelled = false;
+    api<Creature>(`/users/${activeUser.id}/creature`)
+      .then((data) => { if (!cancelled) setCreature(data); })
+      .catch((error) => { if (!cancelled) setStatus(error.message); });
+    api<{ quests: TrainingQuest[] }>(`/users/${activeUser.id}/quests`)
+      .then((data) => { if (!cancelled) setQuests(data.quests); })
+      .catch((error) => { if (!cancelled) setStatus(error.message); });
+    if (activeUser.is_admin) {
+      api<User[]>(`/admin/${activeUser.id}/users`)
+        .then((data) => { if (!cancelled) setAdminUsers(data); })
+        .catch((error) => { if (!cancelled) setStatus(error.message); });
+    }
+    return () => { cancelled = true; };
+  }, [activeUser]);
 
   async function createProfile(event: FormEvent) {
     event.preventDefault();
@@ -1064,7 +1092,7 @@ function PracticeMode({
     setAttemptNumber(1);
     setFeedback("");
     setIsChecking(false);
-    startedAtRef.current = Date.now();
+    startedAtRef.current = performance.now();
     submittingRef.current = false;
     focusAnswer(inputRef);
   }, [sessionId]);
@@ -1177,7 +1205,7 @@ function PracticeMode({
     if (!question || submittedAnswer === "" || submittingRef.current) return;
     submittingRef.current = true;
     setIsChecking(true);
-    const elapsed = Date.now() - startedAtRef.current;
+    const elapsed = Math.round(performance.now() - startedAtRef.current);
     try {
       const result = await api<{
         correct: boolean;
@@ -1205,7 +1233,7 @@ function PracticeMode({
         setAnswerValue(inputRef, "");
         setFeedback("Try once more.");
         setIsChecking(false);
-        startedAtRef.current = Date.now();
+        startedAtRef.current = performance.now();
         submittingRef.current = false;
         focusAnswer(inputRef);
         return;
@@ -1361,7 +1389,7 @@ function QuestMode({
     setFeedback("");
     setResult(null);
     setIsChecking(false);
-    startedAtRef.current = Date.now();
+    startedAtRef.current = performance.now();
     submittingRef.current = false;
     focusAnswer(inputRef);
   }, [questStart.quest.quest_id]);
@@ -1385,7 +1413,7 @@ function QuestMode({
     setAttemptNumber(1);
     setFeedback("");
     setIsChecking(false);
-    startedAtRef.current = Date.now();
+    startedAtRef.current = performance.now();
     submittingRef.current = false;
     focusAnswer(inputRef);
   }
@@ -1395,7 +1423,7 @@ function QuestMode({
     if (!current || submittedAnswer === "" || submittingRef.current) return;
     submittingRef.current = true;
     setIsChecking(true);
-    const elapsed = Date.now() - startedAtRef.current;
+    const elapsed = Math.round(performance.now() - startedAtRef.current);
     try {
       const response = await api<{
         correct: boolean;
@@ -1424,7 +1452,7 @@ function QuestMode({
         setAnswerValue(inputRef, "");
         setFeedback("Try once more.");
         setIsChecking(false);
-        startedAtRef.current = Date.now();
+        startedAtRef.current = performance.now();
         submittingRef.current = false;
         focusAnswer(inputRef);
         return;
@@ -1559,7 +1587,7 @@ function ChallengeMode({
       setAnswerValue(inputRef, "");
       setResult(null);
       setIsSubmittingAnswer(false);
-      startedAtRef.current = Date.now();
+      startedAtRef.current = performance.now();
       submittingRef.current = false;
       focusAnswer(inputRef);
     } catch {
@@ -1575,13 +1603,13 @@ function ChallengeMode({
     setIsSubmittingAnswer(true);
     const nextAnswers = [
       ...answers,
-      { question_id: current.question_id, answer: submittedAnswer, response_time_ms: Date.now() - startedAtRef.current }
+      { question_id: current.question_id, answer: submittedAnswer, response_time_ms: Math.round(performance.now() - startedAtRef.current) }
     ];
     setAnswerValue(inputRef, "");
     if (index + 1 < questions.length) {
       setAnswers(nextAnswers);
       setIndex(index + 1);
-      startedAtRef.current = Date.now();
+      startedAtRef.current = performance.now();
       setIsSubmittingAnswer(false);
       submittingRef.current = false;
       focusAnswer(inputRef);
@@ -1803,8 +1831,9 @@ function DashboardView({ dashboard, tables, profileName }: { dashboard: Dashboar
   const selectedTotals = useMemo(() => {
     const correct = selectedCells.reduce((sum, cell) => sum + cell.correct_count, 0);
     const incorrect = selectedCells.reduce((sum, cell) => sum + cell.incorrect_count, 0);
+    const secondAttemptCorrect = selectedCells.reduce((sum, cell) => sum + cell.second_attempt_correct, 0);
     const total = correct + incorrect;
-    return { correct, incorrect, accuracy: total ? correct / total : null };
+    return { correct, incorrect, secondAttemptCorrect, accuracy: total ? correct / total : null };
   }, [selectedCells]);
   const selectedStrengths = useMemo(
     () => selectedCells.filter((cell) => cell.accuracy !== null).sort((a, b) => (b.accuracy || 0) - (a.accuracy || 0) || (a.average_time_ms || 999999) - (b.average_time_ms || 999999)).slice(0, 5),
@@ -1853,6 +1882,7 @@ function DashboardView({ dashboard, tables, profileName }: { dashboard: Dashboar
         <Metric label="Incorrect" value={`${selectedTotals.incorrect}`} />
         <Metric label="Accuracy" value={selectedTotals.accuracy === null ? "-" : `${Math.round(selectedTotals.accuracy * 100)}%`} />
       </div>
+      <p className="quiet">Accuracy uses first answers. Second-try fixes are tracked separately: {selectedTotals.secondAttemptCorrect}.</p>
       <div className="split">
         <FactList title="Strengths" facts={selectedStrengths} />
         <FactList title="Weaknesses" facts={selectedWeaknesses} />

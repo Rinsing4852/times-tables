@@ -1,6 +1,6 @@
 # Recall Forge
 
-Recall Forge 0.6.0 is a self-hosted times tables practice app for local use. It is intentionally focused: authenticated local profiles, adaptive practice, smart training quests, challenge mode, heat maps, SQLite, no external accounts, no analytics, and no AI API. It also includes a light companion creature theme where practice gives the creature energy and XP while the learning engine stays focused on recall and spaced practice. Each species has a distinct five-stage evolution path and a dedicated transformation moment, but remains a calm maths companion rather than a needy care system.
+Recall Forge 0.7.0 is a self-hosted times tables practice app for local use. It is intentionally focused: authenticated local profiles, adaptive practice, smart training quests, challenge mode, heat maps, SQLite, no external accounts, no analytics, and no AI API. It also includes a light companion creature theme where practice gives the creature energy and XP while the learning engine stays focused on recall and spaced practice. Each species has a distinct five-stage evolution path and a dedicated transformation moment, but remains a calm maths companion rather than a needy care system.
 
 ## Stack
 
@@ -46,17 +46,17 @@ For Unraid with Dockge, use `compose.dockge.yml` from the cloned repository. Its
 - `no-new-privileges` is enabled
 - container filesystems are read-only except `/tmp`, frontend cache, and backend `/data`
 
-Before deploying, copy `.env.unraid.example` to `.env` in the Dockge stack folder and change `UNRAID_LAN_IP` to your Unraid LAN address:
+Before deploying, copy `.env.unraid.example` to `.env` in the Dockge stack folder and confirm `UNRAID_LAN_IP` is your Unraid LAN address. Compose now stops with a clear error when this value is missing instead of binding to an incorrect example address:
 
 ```bash
 cp .env.unraid.example .env
 ```
 
-Or set `UNRAID_LAN_IP` directly in Dockge, or replace the default `192.168.1.50` in the compose file:
+Or set `UNRAID_LAN_IP` directly in Dockge:
 
 ```yaml
 ports:
-  - "${UNRAID_LAN_IP:-192.168.1.50}:${RECALL_FORGE_PORT:-3000}:3000"
+  - "${UNRAID_LAN_IP:?Set UNRAID_LAN_IP in .env}:${RECALL_FORGE_PORT:-3000}:3000"
 ```
 
 If another application already uses port `3000`, set `RECALL_FORGE_PORT=3001` in `.env` and open Recall Forge on port `3001` instead.
@@ -195,7 +195,7 @@ npm test
 
 ## Current Features
 
-- Multiple authenticated local profiles. The first profile is the admin and requires a passcode of at least four characters.
+- Multiple authenticated local profiles. The first profile is the admin and requires a passcode of at least six characters by default.
 - Admin profiles can create other admins, rename profiles, reset passcodes, reset progress, and delete profiles.
 - A safe creature companion per profile with type, name, energy, XP, level, stage, weekly goal, cosmetic unlocks, and 30 lightweight species-stage SVGs.
 - A visual five-stage growth path, six-species picker, and positive full-screen evolution moment.
@@ -219,7 +219,7 @@ Recent performance uses the latest attempts for each fact, so strong facts appea
 
 ## Database Tables
 
-The backend auto-creates tables on startup and seeds multiplication facts from 2x2 through 12x12.
+The backend applies ordered, repeatable schema migrations, auto-creates tables on startup, and seeds multiplication facts from 2x2 through 12x12.
 
 - `users`
 - `auth_sessions`

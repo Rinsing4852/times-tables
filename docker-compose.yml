@@ -6,6 +6,8 @@ services:
       - "8000:8000"
     environment:
       DATABASE_URL: sqlite:////data/recall_forge.db
+      APP_TIMEZONE: ${APP_TIMEZONE:-Europe/London}
+      ADMIN_PASSWORD_MIN_LENGTH: ${ADMIN_PASSWORD_MIN_LENGTH:-6}
     volumes:
       - backend-data:/data
 
