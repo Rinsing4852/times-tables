@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 function solve(prompt: string): string {
-  const numbers = [...prompt.matchAll(/\d+/g)].map((match) => Number(match[0]));
+  const numbers = (prompt.match(/\d+/g) || []).map(Number);
   if (prompt.includes("÷")) return String(numbers[0] / numbers[1]);
   if (prompt.startsWith("?")) return String(numbers[1] / numbers[0]);
   if (prompt.includes("x ?")) return String(numbers[1] / numbers[0]);

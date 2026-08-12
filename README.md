@@ -1,6 +1,6 @@
 # Recall Forge
 
-Recall Forge 0.7.0 is a self-hosted times tables practice app for local use. It is intentionally focused: authenticated local profiles, adaptive practice, smart training quests, challenge mode, heat maps, SQLite, no external accounts, no analytics, and no AI API. It also includes a light companion creature theme where practice gives the creature energy and XP while the learning engine stays focused on recall and spaced practice. Each species has a distinct five-stage evolution path and a dedicated transformation moment, but remains a calm maths companion rather than a needy care system.
+Recall Forge 0.7.1 is a self-hosted times tables practice app for local use. It is intentionally focused: authenticated local profiles, adaptive practice, smart training quests, challenge mode, heat maps, SQLite, no external accounts, no analytics, and no AI API. It also includes a light companion creature theme where practice gives the creature energy and XP while the learning engine stays focused on recall and spaced practice. Each species has a distinct five-stage evolution path and a dedicated transformation moment, but remains a calm maths companion rather than a needy care system.
 
 ## Stack
 
@@ -35,7 +35,7 @@ The SQLite database is stored in the Docker volume `times-tables_backend-data`.
 
 ## Unraid / Dockge
 
-For Unraid with Dockge, use `compose.dockge.yml` from the cloned repository. Its relative build paths require the compose file, `backend`, and `frontend` to remain together in the repository root. It is set up for LAN/Tailscale use:
+For Unraid with Dockge, use `compose.dockge.yml`. It pulls prebuilt `amd64`/`arm64` images from GitHub Container Registry, so Dockge can update Recall Forge without cloning the source or rebuilding Next.js and FastAPI on the server. It is set up for LAN/Tailscale use:
 
 - only the frontend port is exposed
 - the backend stays on the private Docker bridge network
@@ -45,6 +45,7 @@ For Unraid with Dockge, use `compose.dockge.yml` from the cloned repository. Its
 - containers drop Linux capabilities
 - `no-new-privileges` is enabled
 - container filesystems are read-only except `/tmp`, frontend cache, and backend `/data`
+- the app containers do not receive the Docker socket and cannot control other containers
 
 Before deploying, copy `.env.unraid.example` to `.env` in the Dockge stack folder and confirm `UNRAID_LAN_IP` is your Unraid LAN address. Compose now stops with a clear error when this value is missing instead of binding to an incorrect example address:
 
@@ -67,51 +68,69 @@ The data directory can also be overridden with `TIMES_TABLES_DATA_DIR`. On Unrai
 /mnt/user/appdata/times-tables/data
 ```
 
-### Private GitHub Repo
+### First Dockge Installation
 
-You do not need to create a GitHub release to update Unraid. Pull the latest `main` branch into the existing private clone, then rebuild the stack.
+Create a Recall Forge stack in Dockge and paste in `compose.dockge.yml`, or place that file in the stack folder as `compose.yaml`. Add the values from `.env.unraid.example` to the stack environment and start it.
 
-For a private repo, use one of these approaches:
-
-- Clone the repo onto Unraid with your GitHub credentials or a fine-grained token that has read access to this repo.
-- Keep the repo cloned locally on Unraid and run the Dockge compose file from that repository root.
-- GitHub remote build contexts are an alternative only when Dockge/Docker has credentials configured for the private repo; they are not used by the supplied compose file.
-
-If you previously could not find the repo at `/mnt/user/appdata/times-tables`, check where it actually lives:
-
-```bash
-find /mnt/user/appdata -maxdepth 4 -name .git -type d
-```
-
-In your earlier setup the repo was found at:
+The images used by the stack are:
 
 ```text
-/mnt/user/appdata/recallforge
+ghcr.io/rinsing4852/recall-forge-backend:latest
+ghcr.io/rinsing4852/recall-forge-frontend:latest
 ```
 
-Use that path for updates if it is still where the repo lives.
+Public GHCR images can be pulled anonymously. No GitHub token is stored on Unraid.
 
-### Update On Unraid
+### One-Click Updates
 
-From a terminal on Unraid, update the cloned repo:
+Every tested push to `main` publishes new `latest`, version-numbered, and commit-specific images. To update:
+
+1. Open the Recall Forge stack in Dockge.
+2. Click **Update**.
+3. Dockge pulls both images and recreates the services.
+4. Open Settings in Recall Forge and confirm the displayed version.
+
+The terminal equivalent is:
 
 ```bash
-cd /mnt/user/appdata/recallforge
-git pull
+docker compose pull
+docker compose up -d
 ```
 
-Then rebuild/recreate the stack. If using the terminal from the repo folder:
+No `git pull`, source checkout, `--build`, GitHub release attachment, or in-app Docker access is required. Database migrations run automatically when the new backend starts.
+
+### Move An Existing Source-Build Stack
+
+For an existing installation that currently builds from `/mnt/user/appdata/recallforge-source`, update the repository one final time and recreate it with the image-based file:
 
 ```bash
-docker compose -f compose.dockge.yml up -d --build --force-recreate
+cd /mnt/user/appdata/recallforge-source
+git pull origin main
+docker compose -f compose.dockge.yml pull
+docker compose -f compose.dockge.yml up -d --force-recreate
 ```
 
-If using Dockge:
+The persistent data path is unchanged, so profiles, statistics, creatures, and progress remain in place. After this migration, use Dockge's **Update** button for future versions.
 
-1. Open the Recall Forge stack.
-2. Pull/update the repo if Dockge does not do this automatically.
-3. Click update/redeploy/recreate so the images rebuild.
-4. Check the frontend logs and backend logs for startup errors.
+### Pin Or Roll Back An Image
+
+For controlled updates, replace `latest` on both `image:` lines with the same version, for example:
+
+```yaml
+image: ghcr.io/rinsing4852/recall-forge-backend:0.7.1
+image: ghcr.io/rinsing4852/recall-forge-frontend:0.7.1
+```
+
+Keep both services on the same version. Take an admin database backup before rolling back across versions that include schema changes.
+
+### Source-Build Fallback
+
+`compose.dockge.build.yml` retains the hardened local-build deployment for development and recovery. It requires the full repository and updates with:
+
+```bash
+git pull origin main
+docker compose -f compose.dockge.build.yml up -d --build --force-recreate
+```
 
 Your SQLite learning data should remain in:
 
@@ -137,9 +156,9 @@ This means port `8000` does not need to be exposed to your LAN.
 
 ### Common Unraid Troubleshooting
 
-If `git pull` says `fatal: not a git repository`, you are in the wrong folder. Run the `find /mnt/user/appdata -maxdepth 4 -name .git -type d` command above, then `cd` to the parent folder of the `.git` directory.
+If Dockge reports `manifest unknown`, wait for the GitHub Actions `CI` workflow to finish publishing the requested version and try again.
 
-If Dockge cannot find `backend` or `frontend`, its stack folder is not the repo root. Either move/copy the repo contents into the Dockge stack folder, use relative contexts like `./backend`, or use GitHub remote build contexts.
+If Dockge reports `denied`, confirm both GHCR packages are public or authenticate Docker to GHCR. Public packages are recommended for this public repository.
 
 If the frontend starts but the app cannot load data, check that `BACKEND_INTERNAL_URL` is set to:
 
