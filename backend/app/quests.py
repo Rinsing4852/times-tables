@@ -5,12 +5,12 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from random import choice, shuffle
 
-from .adaptive import QUESTION_TYPES, as_aware_utc, priority_score, question_for_fact
+from .adaptive import as_aware_utc, priority_score, question_for_fact
 from .config import local_date
 from .models import Fact, FactStat, TrainingQuest
 
 
-APP_VERSION = "0.7.1"
+APP_VERSION = "0.8.0"
 
 
 @dataclass(frozen=True)
@@ -102,6 +102,37 @@ def table_with_least_practice(facts: list[Fact], stats_by_fact_id: dict[int, Fac
     return min(table_counts.items(), key=lambda item: (item[1], item[0]))[0]
 
 
+def facts_without_data(facts: list[Fact], stats_by_fact_id: dict[int, FactStat]) -> list[Fact]:
+    return [fact for fact in facts if stat_accuracy(stats_by_fact_id.get(fact.id)) is None]
+
+
+def accuracy_band_definitions(facts: list[Fact], stats_by_fact_id: dict[int, FactStat]) -> list[QuestDefinition]:
+    definitions = []
+    bands = [(0, 40), (40, 50), (50, 60), (60, 70), (70, 80), (80, 90)]
+    for lower, upper in bands:
+        candidates = [
+            fact
+            for fact in facts
+            if (accuracy := stat_accuracy(stats_by_fact_id.get(fact.id))) is not None
+            and lower / 100 <= accuracy < upper / 100
+        ]
+        if not candidates:
+            continue
+        candidates = sorted(candidates, key=lambda fact: priority_score(stats_by_fact_id.get(fact.id)), reverse=True)[:8]
+        definitions.append(
+            QuestDefinition(
+                quest_type=f"accuracy_{lower}_{upper}",
+                title=f"Accuracy Builder: {lower}-{upper}%",
+                description=f"Build confidence with facts currently in the {lower}-{upper}% range.",
+                question_count=8,
+                reward_xp=30,
+                reward_note="Quest reward: 30 XP",
+                fact_ids=[fact.id for fact in candidates],
+            )
+        )
+    return definitions
+
+
 def quest_definitions(facts: list[Fact], stats_by_fact_id: dict[int, FactStat]) -> list[QuestDefinition]:
     by_id = {fact.id: fact for fact in facts}
     weakest = weakest_facts(facts, stats_by_fact_id, 6)
@@ -109,20 +140,26 @@ def quest_definitions(facts: list[Fact], stats_by_fact_id: dict[int, FactStat]) 
     speedy = slower_but_accurate_facts(facts, stats_by_fact_id, 6) or weakest[:5]
     table = table_to_strengthen(facts, stats_by_fact_id)
     table_facts = [fact for fact in facts if fact.a == table][:8] or weakest[:6]
-    new_table = table_with_least_practice(facts, stats_by_fact_id)
-    new_table_facts = [fact for fact in facts if fact.a == new_table][:8] or facts[:8]
+    unseen = facts_without_data(facts, stats_by_fact_id)
+    discovery_table = table_with_least_practice(unseen, stats_by_fact_id) if unseen else None
+    discovery_facts = [fact for fact in unseen if fact.a == discovery_table][:12] if discovery_table else []
     mixed_ids = [fact.id for fact in weakest[:4] + speedy[:3] + table_facts[:3] if fact.id in by_id]
 
-    return [
-        QuestDefinition(
-            quest_type="new_table",
-            title=f"New Table Explorer: {new_table}x",
-            description=f"Try a table that has not had much practice yet.",
-            question_count=10,
-            reward_xp=40,
-            reward_note="Quest reward: 40 XP",
-            fact_ids=[fact.id for fact in new_table_facts],
-        ),
+    definitions = []
+    if discovery_facts:
+        definitions.append(
+            QuestDefinition(
+                quest_type="discovery",
+                title=f"Uncharted Facts: {discovery_table}x",
+                description="Explore facts with no practice data yet. Reach 50% first-time accuracy to unlock Mega Form for 24 hours.",
+                question_count=min(10, len(discovery_facts)),
+                reward_xp=60,
+                reward_note="Quest reward: 60 XP + Mega Form target",
+                fact_ids=[fact.id for fact in discovery_facts],
+            )
+        )
+    definitions.extend(accuracy_band_definitions(facts, stats_by_fact_id))
+    definitions.extend([
         QuestDefinition(
             quest_type="tricky",
             title="Tricky Fact Tune-Up",
@@ -177,7 +214,8 @@ def quest_definitions(facts: list[Fact], stats_by_fact_id: dict[int, FactStat]) 
             reward_note="Quest reward: 30 XP",
             fact_ids=mixed_ids or [fact.id for fact in facts[:8]],
         ),
-    ]
+    ])
+    return definitions
 
 
 def ensure_available_quests(user_id: int, existing: list[TrainingQuest], facts: list[Fact], stats_by_fact_id: dict[int, FactStat]) -> list[TrainingQuest]:
@@ -245,11 +283,9 @@ def quest_payload(quest: TrainingQuest) -> dict:
 
 def question_type_for_quest(quest_type: str) -> str:
     if quest_type == "division":
-        return choice(["divide_product_by_a", "divide_product_by_b"])
-    if quest_type == "tricky":
-        return choice(QUESTION_TYPES)
+        return "divide_product_by_a"
     if quest_type == "mistake":
-        return choice(["multiply_ab", "multiply_ba", "missing_a", "missing_b"])
+        return choice(["multiply_ab", "multiply_ba", "missing_b"])
     return choice(["multiply_ab", "multiply_ba", "divide_product_by_a", "missing_b"])
 
 

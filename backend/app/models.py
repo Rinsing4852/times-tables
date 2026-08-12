@@ -37,6 +37,8 @@ class User(Base):
     weekly_practice_days: Mapped[str] = mapped_column(String(256), nullable=False, default="[]")
     last_weekly_reset_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     weekly_goal_awarded_week: Mapped[str] = mapped_column(String(16), nullable=False, default="")
+    required_tables: Mapped[str] = mapped_column(String(64), nullable=False, default="[]")
+    mega_evolution_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     attempts: Mapped[list["QuestionAttempt"]] = relationship(back_populates="user")
     auth_sessions: Mapped[list["AuthSession"]] = relationship(back_populates="user", cascade="all, delete-orphan")

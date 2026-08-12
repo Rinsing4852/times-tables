@@ -8,7 +8,7 @@ from sqlalchemy.orm import sessionmaker
 from app.adaptive import question_for_fact
 from app.database import Base, get_db
 from app.main import _login_failures, app
-from app.models import Fact, LearningSessionQuestion, User
+from app.models import Fact, LearningSession, LearningSessionQuestion, User
 from app.seed import seed_facts
 
 
@@ -101,6 +101,36 @@ def test_admin_promotion_requires_a_passcode(api) -> None:
     assert response.status_code == 400
 
 
+def test_admin_required_tables_are_locked_into_child_sessions(api) -> None:
+    client, testing_session = api
+    admin = create_admin(client)
+    login(client, admin["id"], "246824")
+    child = client.post(f"/admin/{admin['id']}/users", json={"name": "Learner"}).json()
+
+    updated = client.put(
+        f"/admin/{admin['id']}/users/{child['id']}/required-tables",
+        json={"tables": [7, 4, 7]},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["required_tables"] == [4, 7]
+
+    client.post("/auth/logout")
+    login(client, child["id"])
+    assert client.put(
+        f"/admin/{admin['id']}/users/{child['id']}/required-tables",
+        json={"tables": []},
+    ).status_code == 403
+
+    started = client.post(
+        "/practice/start",
+        json={"user_id": child["id"], "tables": [2], "question_mode": "mixed", "question_count": 1},
+    )
+    assert started.status_code == 200
+    with testing_session() as db:
+        session = db.get(LearningSession, started.json()["session_id"])
+        assert session.selected_tables == "2,4,7"
+
+
 def test_practice_session_awards_once_for_an_issued_question(api) -> None:
     client, testing_session = api
     admin = create_admin(client)
@@ -132,6 +162,49 @@ def test_practice_session_awards_once_for_an_issued_question(api) -> None:
         user = db.get(User, admin["id"])
         assert user.total_sessions_completed == 1
         assert user.total_questions_answered == 1
+
+
+def test_discovery_quest_can_unlock_temporary_mega_form(api) -> None:
+    client, testing_session = api
+    admin = create_admin(client)
+    login(client, admin["id"], "246824")
+    quests = client.get(f"/users/{admin['id']}/quests").json()["quests"]
+    discovery = next(quest for quest in quests if quest["quest_type"] == "discovery")
+    started = client.post(f"/users/{admin['id']}/quests/{discovery['quest_id']}/start").json()
+    final_response = None
+
+    for index, question in enumerate(started["questions"]):
+        with testing_session() as db:
+            record = db.get(LearningSessionQuestion, question["question_id"])
+            fact = db.get(Fact, record.fact_id)
+            _, correct_answer = question_for_fact(fact, record.question_type)
+        answer = str(correct_answer) if index < len(started["questions"]) / 2 else "9999"
+        final_response = client.post(
+            "/practice/answer",
+            json={
+                "session_id": started["session_id"],
+                "question_id": question["question_id"],
+                "answer": answer,
+                "response_time_ms": 900,
+            },
+        )
+        if answer == "9999":
+            final_response = client.post(
+                "/practice/answer",
+                json={
+                    "session_id": started["session_id"],
+                    "question_id": question["question_id"],
+                    "answer": "9999",
+                    "response_time_ms": 700,
+                },
+            )
+
+    assert final_response is not None
+    result = final_response.json()
+    assert result["session_complete"] is True
+    assert result["creature"]["mega_evolution_unlocked"] is True
+    assert result["creature"]["mega_evolution_active"] is True
+    assert result["creature"]["xp_gained"] >= 60
 
 
 def test_dashboard_keeps_first_recall_and_second_try_recovery_separate(api) -> None:

@@ -15,11 +15,11 @@ QUESTION_TYPES = [
     "missing_b",
     "missing_a",
 ]
-MULTIPLY_TYPES = ["multiply_ab", "multiply_ba", "missing_b", "missing_a"]
-DIVISION_TYPES = ["divide_product_by_a", "divide_product_by_b"]
-FOCUSED_TYPES = {
-    "mixed": ["multiply_ab", "divide_product_by_a", "missing_b"],
-    "multiply": ["multiply_ab", "missing_b"],
+MULTIPLY_TYPES = ["multiply_ab", "multiply_ba", "missing_b"]
+DIVISION_TYPES = ["divide_product_by_a"]
+TABLE_VISIBLE_TYPES = {
+    "mixed": ["multiply_ab", "multiply_ba", "divide_product_by_a", "missing_b"],
+    "multiply": MULTIPLY_TYPES,
     "division": ["divide_product_by_a"],
 }
 
@@ -47,14 +47,9 @@ def question_for_fact(fact: Fact, question_type: str) -> tuple[str, int]:
 
 
 def question_types_for_mode(question_mode: str, focused_tables: list[int] | None = None) -> list[str]:
-    focused = len(set(focused_tables or [])) == 1
-    if focused:
-        return FOCUSED_TYPES.get(question_mode, FOCUSED_TYPES["mixed"])
-    if question_mode == "multiply":
-        return MULTIPLY_TYPES
-    if question_mode == "division":
-        return DIVISION_TYPES
-    return QUESTION_TYPES
+    # Facts are stored with the selected table in ``a``. Never hide that
+    # selected table behind the question mark, even when several tables are active.
+    return TABLE_VISIBLE_TYPES.get(question_mode, TABLE_VISIBLE_TYPES["mixed"])
 
 
 def normalize_answer(answer: str) -> int | None:
@@ -104,7 +99,7 @@ def priority_score(stat: FactStat | None, now: datetime | None = None, recent_at
         hours_since_failure = max((now - as_aware_utc(stat.last_failed_at)).total_seconds() / 3600, 0)
         recent_failure_boost = 0.8 * exp(-hours_since_failure / 24)
 
-    mastery_discount = min(stat.current_streak * 0.12, 0.8)
+    mastery_discount = min((stat.current_streak or 0) * 0.12, 0.8)
     base_score = error_rate + slowness_score + spacing_score + recent_failure_boost - mastery_discount
     recent_score = recent_attempt_score(recent_attempts or [])
     if recent_score is not None:

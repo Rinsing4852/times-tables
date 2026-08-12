@@ -75,9 +75,18 @@ def test_question_variants_return_expected_answers():
 
 
 def test_question_mode_for_focused_table_keeps_table_in_prompt():
-    assert question_types_for_mode("mixed", [10]) == ["multiply_ab", "divide_product_by_a", "missing_b"]
-    assert question_types_for_mode("multiply", [10]) == ["multiply_ab", "missing_b"]
+    assert question_types_for_mode("mixed", [10]) == ["multiply_ab", "multiply_ba", "divide_product_by_a", "missing_b"]
+    assert question_types_for_mode("multiply", [10]) == ["multiply_ab", "multiply_ba", "missing_b"]
     assert question_types_for_mode("division", [10]) == ["divide_product_by_a"]
+
+
+def test_selected_table_is_never_the_missing_answer_with_multiple_tables():
+    fact = Fact(a=4, b=10, product=40)
+    for mode in ["mixed", "multiply", "division"]:
+        for question_type in question_types_for_mode(mode, [4, 7]):
+            prompt, answer = question_for_fact(fact, question_type)
+            assert answer != 4
+            assert "4" in prompt
 
 
 def test_recent_attempts_influence_priority_without_zeroing_mastered_facts():

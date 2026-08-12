@@ -66,3 +66,23 @@ test("admin backup and progress export actions are exposed", () => {
   assert.ok(pageSource.includes("/backup"));
   assert.ok(pageSource.includes("/progress.csv"));
 });
+
+test("admin-required tables are locked for learners", () => {
+  assert.match(pageSource, /required-tables/);
+  assert.match(pageSource, /Required by admin/);
+  assert.match(pageSource, /locked=\{activeUser\.required_tables/);
+});
+
+test("heat maps use five colour-only levels", () => {
+  for (const level of ["heat0", "heat1", "heat2", "heat3", "heat4"]) {
+    assert.ok(pageSource.includes(level));
+  }
+  assert.doesNotMatch(pageSource, /Show facts in heat map boxes/);
+  assert.doesNotMatch(pageSource, /speed10/);
+});
+
+test("temporary Mega Form has a visible unlock state", () => {
+  assert.match(pageSource, /Mega Form unlocked for 24 hours/);
+  assert.match(pageSource, /mega_evolution_active/);
+  assert.match(pageSource, /mega=\{creature\.mega_evolution_active\}/);
+});

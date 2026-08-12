@@ -6,7 +6,7 @@ import { ProfileLogin } from "../components/ProfileLogin";
 import { TableSelector } from "../components/TableSelector";
 import { api } from "../lib/api";
 
-type User = { id: number; name: string; is_admin: boolean; password_set: boolean; creature_type?: string; creature_name?: string };
+type User = { id: number; name: string; is_admin: boolean; password_set: boolean; required_tables: number[]; creature_type?: string; creature_name?: string };
 type QuestionMode = "mixed" | "multiply" | "division";
 type Creature = {
   user_id: number;
@@ -38,6 +38,9 @@ type Creature = {
   unlocked_cosmetics: Cosmetic[];
   selected_cosmetic: string;
   new_unlocks: Cosmetic[];
+  mega_evolution_active: boolean;
+  mega_evolution_until: string | null;
+  mega_evolution_unlocked: boolean;
 };
 type Cosmetic = { key: string; name: string; kind: string; unlock: string };
 type Question = { question_id: number; fact_id: number; question_type: string; prompt: string; priority_score?: number };
@@ -308,6 +311,7 @@ export default function Home() {
       });
       setActiveUser(loggedIn);
       setDashboardUserId(loggedIn.id);
+      setSettingsOpen(false);
       setTab("home");
     } catch (error) {
       setLoginError(error instanceof Error ? error.message : "That passcode was not accepted.");
@@ -316,6 +320,7 @@ export default function Home() {
 
   async function logout() {
     await api<{ logged_out: boolean }>("/auth/logout", { method: "POST" });
+    setSettingsOpen(false);
     setActiveUser(null);
     setCreature(null);
     setQuests([]);
@@ -339,6 +344,12 @@ export default function Home() {
     if (!activeUser?.is_admin) return;
     const data = await api<User[]>(`/admin/${activeUser.id}/users`);
     setAdminUsers(data);
+  }, [activeUser]);
+
+  useEffect(() => {
+    if (!activeUser) return;
+    const required = activeUser.required_tables || [];
+    setTables((current) => Array.from(new Set([...current, ...required])).sort((a, b) => a - b));
   }, [activeUser]);
 
   const loadQuests = useCallback(async (userId = activeUser?.id) => {
@@ -525,7 +536,10 @@ export default function Home() {
           <>
             {!focusMode && <details className="panel collapsiblePanel">
               <summary>Tables: {tables.join(", ")}</summary>
-              <TableSelector selected={tables} onChange={setTables} />
+              <TableSelector selected={tables} locked={activeUser.required_tables || []} onChange={setTables} />
+              {(activeUser.required_tables || []).length > 0 && (
+                <p className="quiet">Required by admin: {activeUser.required_tables.join(", ")}. These tables stay selected.</p>
+              )}
             </details>}
             {!focusMode && <div className="panel compactPanel">
               <span className="fieldLabel">Question type</span>
@@ -634,7 +648,7 @@ function CreatureHome({
     <section className="creatureHome">
       <div className="creatureCard">
         <div className={`creatureAvatarWrap habitat-${creatureSlug(creature.creature_type)}`}>
-          <CreatureAvatar type={creature.creature_type} stage={creature.stage} cosmetic={creature.selected_cosmetic} />
+          <CreatureAvatar type={creature.creature_type} stage={creature.stage} cosmetic={creature.selected_cosmetic} mega={creature.mega_evolution_active} />
         </div>
         <div className="creatureInfo">
           <p className="eyebrow">{creature.creature_type}</p>
@@ -642,6 +656,7 @@ function CreatureHome({
           <p className="stageLine">
             Level {creature.level} · {creature.stage}
           </p>
+          {creature.mega_evolution_active && <strong className="megaStatus">Mega Form active</strong>}
           <div className="xpBar" aria-label={`XP progress ${Math.round(creature.xp_progress * 100)} percent`}>
             <span style={{ width: `${Math.round(creature.xp_progress * 100)}%` }} />
           </div>
@@ -702,10 +717,11 @@ function CreatureHome({
   );
 }
 
-function CreatureAvatar({ type, stage, cosmetic = "starter-star" }: { type: string; stage: string; cosmetic?: string }) {
-  const stageAsset = creatureAsset(type, stage);
+function CreatureAvatar({ type, stage, cosmetic = "starter-star", mega = false }: { type: string; stage: string; cosmetic?: string; mega?: boolean }) {
+  const displayedStage = mega ? "Champion" : stage;
+  const stageAsset = creatureAsset(type, displayedStage);
   return (
-    <div className={`creatureAvatar ${type.toLowerCase().replaceAll(" ", "-")} stage-${stage.toLowerCase()} ${cosmetic}`} role="img" aria-label={`${type} ${stage} stage`}>
+    <div className={`creatureAvatar ${type.toLowerCase().replaceAll(" ", "-")} stage-${displayedStage.toLowerCase()} ${cosmetic} ${mega ? "mega" : ""}`} role="img" aria-label={`${type} ${mega ? "temporary Mega Form" : `${stage} stage`}`}>
       <span className="creatureStageAsset" style={{ backgroundImage: `url(${stageAsset})` }} />
     </div>
   );
@@ -768,19 +784,28 @@ function AdminPanel({
   const [newPassword, setNewPassword] = useState("");
   const [newAdmin, setNewAdmin] = useState(false);
   const [message, setMessage] = useState("");
+  const [creating, setCreating] = useState(false);
 
   async function createUser(event: FormEvent) {
     event.preventDefault();
-    if (!newName.trim()) return;
-    await api<User>(`/admin/${adminUser.id}/users`, {
-      method: "POST",
-      body: JSON.stringify({ name: newName, password: newPassword || null, is_admin: newAdmin }),
-    });
-    setNewName("");
-    setNewPassword("");
-    setNewAdmin(false);
-    setMessage("Profile created.");
-    await onRefresh();
+    if (!newName.trim() || creating) return;
+    setCreating(true);
+    setMessage("Creating profile...");
+    try {
+      await api<User>(`/admin/${adminUser.id}/users`, {
+        method: "POST",
+        body: JSON.stringify({ name: newName, password: newPassword || null, is_admin: newAdmin }),
+      });
+      setNewName("");
+      setNewPassword("");
+      setNewAdmin(false);
+      await onRefresh();
+      setMessage("Profile created.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Profile could not be created.");
+    } finally {
+      setCreating(false);
+    }
   }
 
   function downloadBackup() {
@@ -811,7 +836,7 @@ function AdminPanel({
           <input type="checkbox" checked={newAdmin} onChange={(event) => setNewAdmin(event.target.checked)} />
           Admin
         </label>
-        <button type="submit">Create</button>
+        <button type="submit" disabled={creating}>{creating ? "Creating..." : "Create"}</button>
       </form>
       <div className="adminUserList">
         {users.map((user) => (
@@ -837,16 +862,22 @@ function AdminUserRow({
   const [name, setName] = useState(user.name);
   const [password, setPassword] = useState("");
   const [isAdmin, setIsAdmin] = useState(user.is_admin);
+  const [requiredTables, setRequiredTables] = useState(user.required_tables || []);
 
   useEffect(() => {
     setName(user.name);
     setIsAdmin(user.is_admin);
+    setRequiredTables(user.required_tables || []);
   }, [user]);
 
   async function save() {
     await api<User>(`/admin/${adminUser.id}/users/${user.id}`, {
       method: "PATCH",
       body: JSON.stringify({ name, is_admin: isAdmin, password: password || undefined }),
+    });
+    await api<User>(`/admin/${adminUser.id}/users/${user.id}/required-tables`, {
+      method: "PUT",
+      body: JSON.stringify({ tables: requiredTables }),
     });
     setPassword("");
     await onRefresh();
@@ -882,6 +913,11 @@ function AdminUserRow({
         <input type="checkbox" checked={isAdmin} onChange={(event) => setIsAdmin(event.target.checked)} />
         Admin
       </label>
+      <div className="adminRequiredTables">
+        <span>Required tables</span>
+        <TableSelector selected={requiredTables} onChange={setRequiredTables} label={`Required tables for ${user.name}`} allowEmpty />
+        <small>The learner can add other tables, but cannot remove these.</small>
+      </div>
       <div className="adminRowActions">
         <button type="button" className="secondaryButton" onClick={() => onViewDashboard(user.id)}>View dashboard</button>
         <button type="button" onClick={save}>Save</button>
@@ -933,7 +969,7 @@ function CreatureProfile({
     <section className="creatureProfile">
       <div className="creatureCard">
         <div className={`creatureAvatarWrap habitat-${creatureSlug(creature.creature_type)}`}>
-          <CreatureAvatar type={creature.creature_type} stage={creature.stage} cosmetic={creature.selected_cosmetic} />
+          <CreatureAvatar type={creature.creature_type} stage={creature.stage} cosmetic={creature.selected_cosmetic} mega={creature.mega_evolution_active} />
         </div>
         <div className="creatureInfo">
           <p className="eyebrow">{creature.creature_type}</p>
@@ -941,6 +977,7 @@ function CreatureProfile({
           <p className="stageLine">
             Level {creature.level} · {creature.stage}
           </p>
+          {creature.mega_evolution_active && <strong className="megaStatus">Temporary Mega Form active</strong>}
           <div className="xpBar" aria-label={`XP progress ${Math.round(creature.xp_progress * 100)} percent`}>
             <span style={{ width: `${Math.round(creature.xp_progress * 100)}%` }} />
           </div>
@@ -1489,6 +1526,12 @@ function QuestMode({
             You got {firstAttemptCorrectCount} right first time and fixed {secondTryCorrectCount} on your second try.
           </p>
           <p>{creature?.creature_name || "Your companion"} gained {result.creature.xp_gained} XP.</p>
+          {result.creature.mega_evolution_unlocked && (
+            <div className="megaUnlock">
+              <CreatureAvatar type={result.creature.creature_type} stage={result.creature.stage} mega />
+              <strong>Mega Form unlocked for 24 hours.</strong>
+            </div>
+          )}
           {result.creature.stage_message && <p>{result.creature.stage_message}</p>}
           <p className="quiet">{result.learning_message}</p>
           {result.facts_practised.length > 0 && <p className="quiet">Facts practised: {result.facts_practised.join(", ")}</p>}
@@ -1821,7 +1864,6 @@ function ChallengeResults({
 }
 
 function DashboardView({ dashboard, tables, profileName }: { dashboard: Dashboard | null; tables: number[]; profileName: string }) {
-  const [showFactLabels, setShowFactLabels] = useState(false);
   const [view, setView] = useState<"overview" | "accuracy" | "speed" | "progress">("overview");
   const selectedTables = useMemo(() => [...tables].sort((a, b) => a - b), [tables]);
   const selectedCells = useMemo(
@@ -1868,12 +1910,6 @@ function DashboardView({ dashboard, tables, profileName }: { dashboard: Dashboar
       </div>
       <div className="dashboardControls">
         <span className="quiet">Showing selected tables: {selectedTables.join(", ")}</span>
-        {(view === "accuracy" || view === "speed") && (
-          <label className="toggleRow">
-            <input type="checkbox" checked={showFactLabels} onChange={(event) => setShowFactLabels(event.target.checked)} />
-            Show facts in heat map boxes
-          </label>
-        )}
       </div>
       {view === "overview" && <>
       <div className="metricGrid">
@@ -1889,10 +1925,10 @@ function DashboardView({ dashboard, tables, profileName }: { dashboard: Dashboar
       </div>
       </>}
       {view === "accuracy" && (
-        <HeatMap title="Accuracy" cells={selectedCells} rows={selectedTables} columns={ALL_TABLES} colourKey="accuracy_colour" valueKey="accuracy" showFactLabels={showFactLabels} />
+        <HeatMap title="Accuracy" cells={selectedCells} rows={selectedTables} columns={ALL_TABLES} valueKey="accuracy" />
       )}
       {view === "speed" && (
-        <HeatMap title="Speed" cells={selectedCells} rows={selectedTables} columns={ALL_TABLES} colourKey="speed_colour" valueKey="average_time_ms" showFactLabels={showFactLabels} speed />
+        <HeatMap title="Speed" cells={selectedCells} rows={selectedTables} columns={ALL_TABLES} valueKey="average_time_ms" speed />
       )}
       {view === "progress" && <ParentStats dashboard={dashboard} />}
     </section>
@@ -1971,36 +2007,32 @@ function HeatMap({
   cells,
   rows,
   columns,
-  colourKey,
   valueKey,
-  showFactLabels,
   speed = false
 }: {
   title: string;
   cells: DashboardCell[];
   rows: number[];
   columns: number[];
-  colourKey: "accuracy_colour" | "speed_colour";
   valueKey: "accuracy" | "average_time_ms";
-  showFactLabels: boolean;
   speed?: boolean;
 }) {
   const cellByPair = new Map(cells.map((cell) => [`${cell.a}-${cell.b}`, cell]));
 
   function cellClass(cell: DashboardCell | undefined, value: number | null) {
     if (!cell || value === null) return "empty";
-    if (!speed) return cell[colourKey];
-    if (value <= 1000) return "speed0";
-    if (value <= 2000) return "speed1";
-    if (value <= 3000) return "speed2";
-    if (value <= 4000) return "speed3";
-    if (value <= 5000) return "speed4";
-    if (value <= 6000) return "speed5";
-    if (value <= 7000) return "speed6";
-    if (value <= 8000) return "speed7";
-    if (value <= 9000) return "speed8";
-    if (value <= 10000) return "speed9";
-    return "speed10";
+    if (speed) {
+      if (value <= 2000) return "heat0";
+      if (value <= 3500) return "heat1";
+      if (value <= 5000) return "heat2";
+      if (value <= 7000) return "heat3";
+      return "heat4";
+    }
+    if (value >= 0.9) return "heat0";
+    if (value >= 0.75) return "heat1";
+    if (value >= 0.6) return "heat2";
+    if (value >= 0.4) return "heat3";
+    return "heat4";
   }
 
   return (
@@ -2009,14 +2041,13 @@ function HeatMap({
         <h2>{title}</h2>
       </div>
       <div className="heatMapFrame">
-        <div className="heatMap" style={{ gridTemplateColumns: `54px repeat(${columns.length}, minmax(58px, 1fr)) 54px` }}>
+        <div className="heatMap" style={{ gridTemplateColumns: `44px repeat(${columns.length}, minmax(42px, 1fr))` }}>
           <div className="heatCorner" />
           {columns.map((table) => (
             <div key={`${title}-col-${table}`} className="heatHeader heatColumnHeader">
               {table}
             </div>
           ))}
-          <div className="heatCorner" />
           {rows.map((row) => (
             <div className="heatRow" key={`${title}-row-${row}`} style={{ display: "contents" }}>
               <div className="heatHeader heatRowHeader">{row}</div>
@@ -2024,37 +2055,29 @@ function HeatMap({
                 const cell = cellByPair.get(`${row}-${column}`);
                 const value = cell ? cell[valueKey] : null;
                 return (
-                  <div key={`${title}-${row}-${column}`} className={`heatCell ${cellClass(cell, value as number | null)}`} title={`${row} x ${column}`}>
-                    {showFactLabels && <span>{row} x {column}</span>}
-                    <small>{value === null ? "No data" : speed ? formatMs(value as number) : `${Math.round((value as number) * 100)}%`}</small>
-                  </div>
+                  <div
+                    key={`${title}-${row}-${column}`}
+                    className={`heatCell ${cellClass(cell, value as number | null)}`}
+                    aria-label={`${row} times ${column}: ${value === null ? "no data" : speed ? formatMs(value as number) : `${Math.round((value as number) * 100)} percent`}`}
+                  />
                 );
               })}
-              <div className="heatHeader heatRowHeader heatRowHeaderEnd">{row}</div>
             </div>
           ))}
         </div>
       </div>
-      {speed && (
-        <div className="heatLegend">
-          {[
-            ["empty", "No data"],
-            ["speed0", "0 - 1 s"],
-            ["speed1", "1 - 2 s"],
-            ["speed2", "2 - 3 s"],
-            ["speed3", "3 - 4 s"],
-            ["speed4", "4 - 5 s"],
-            ["speed5", "5 - 6 s"],
-            ["speed6", "6 - 7 s"],
-            ["speed7", "7 - 8 s"],
-            ["speed8", "8 - 9 s"],
-            ["speed9", "9 - 10 s"],
-            ["speed10", "> 10 s"]
-          ].map(([className, label]) => (
-            <span key={label} className={className}>{label}</span>
-          ))}
-        </div>
-      )}
+      <div className="heatLegend">
+        {[
+          ["empty", "No data"],
+          ["heat0", speed ? "Fast" : "90-100%"],
+          ["heat1", speed ? "Quick" : "75-89%"],
+          ["heat2", speed ? "Steady" : "60-74%"],
+          ["heat3", speed ? "Building" : "40-59%"],
+          ["heat4", speed ? "More practice" : "0-39%"]
+        ].map(([className, label]) => (
+          <span key={label} className={className}>{label}</span>
+        ))}
+      </div>
     </section>
   );
 }

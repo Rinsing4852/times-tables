@@ -211,6 +211,7 @@ def creature_payload(
     stage_message: str = "",
     evolution_from: str | None = None,
     evolution_to: str | None = None,
+    mega_evolution_unlocked: bool = False,
 ) -> dict:
     current_energy = decayed_energy(user)
     name = user.creature_name or "Buddy"
@@ -223,6 +224,9 @@ def creature_payload(
     next_stage_xp = xp_threshold_for_level(next_stage_level) if next_stage_level else None
     weekly_days = weekly_days_for_current_week(user)
     unlocked_keys = cosmetic_list(user)
+    now = datetime.now(timezone.utc)
+    mega_until = as_aware_utc(user.mega_evolution_until) if user.mega_evolution_until else None
+    mega_active = bool(mega_until and mega_until > now)
     return {
         "user_id": user.id,
         "creature_type": user.creature_type or "Blob",
@@ -260,4 +264,7 @@ def creature_payload(
         "new_unlocks": [
             {"key": key, **COSMETICS[key]} for key in (new_unlocks or []) if key in COSMETICS
         ],
+        "mega_evolution_active": mega_active,
+        "mega_evolution_until": mega_until.isoformat() if mega_active and mega_until else None,
+        "mega_evolution_unlocked": mega_evolution_unlocked,
     }

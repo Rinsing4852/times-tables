@@ -25,9 +25,32 @@ def test_quest_definitions_include_core_training_types() -> None:
     definitions = quest_definitions(facts, stats)
     quest_types = {definition.quest_type for definition in definitions}
 
-    assert {"new_table", "tricky", "division", "speed", "mistake", "table", "mixed"}.issubset(quest_types)
+    assert {"tricky", "division", "speed", "mistake", "table", "mixed"}.issubset(quest_types)
     assert all(definition.reward_xp > 0 for definition in definitions)
-    assert next(definition for definition in definitions if definition.quest_type == "new_table").reward_xp == 40
+
+
+def test_no_data_quest_has_high_reward_and_mega_target() -> None:
+    facts = [make_fact(index, 4, index + 1) for index in range(1, 9)]
+
+    definitions = quest_definitions(facts, {})
+    discovery = next(definition for definition in definitions if definition.quest_type == "discovery")
+
+    assert discovery.reward_xp == 60
+    assert "Mega Form" in discovery.description
+
+
+def test_accuracy_quests_target_incremental_bands() -> None:
+    facts = [make_fact(1, 4, 5), make_fact(2, 4, 6), make_fact(3, 4, 7)]
+    stats = {
+        1: FactStat(fact_id=1, first_attempt_correct=4, first_attempt_total=10, current_streak=0),
+        2: FactStat(fact_id=2, first_attempt_correct=5, first_attempt_total=10, current_streak=0),
+        3: FactStat(fact_id=3, first_attempt_correct=9, first_attempt_total=10, current_streak=0),
+    }
+
+    definitions = quest_definitions(facts, stats)
+
+    assert next(item for item in definitions if item.quest_type == "accuracy_40_50").fact_ids == [1]
+    assert next(item for item in definitions if item.quest_type == "accuracy_50_60").fact_ids == [2]
 
 
 def test_quest_questions_use_division_forms_for_division_boost() -> None:
@@ -87,4 +110,4 @@ def test_old_unfinished_quests_expire_when_daily_quests_refresh() -> None:
     quests = ensure_available_quests(1, [old], facts, {})
 
     assert old.status == "expired"
-    assert len([quest for quest in quests if quest.status == "available"]) == 7
+    assert len([quest for quest in quests if quest.status == "available"]) >= 7

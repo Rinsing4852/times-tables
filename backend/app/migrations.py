@@ -32,6 +32,8 @@ def _add_missing_user_columns(engine: Engine) -> None:
         "weekly_practice_days": "ALTER TABLE users ADD COLUMN weekly_practice_days VARCHAR(256) NOT NULL DEFAULT '[]'",
         "last_weekly_reset_at": "ALTER TABLE users ADD COLUMN last_weekly_reset_at DATETIME",
         "weekly_goal_awarded_week": "ALTER TABLE users ADD COLUMN weekly_goal_awarded_week VARCHAR(16) NOT NULL DEFAULT ''",
+        "required_tables": "ALTER TABLE users ADD COLUMN required_tables VARCHAR(64) NOT NULL DEFAULT '[]'",
+        "mega_evolution_until": "ALTER TABLE users ADD COLUMN mega_evolution_until DATETIME",
     }
     with engine.begin() as connection:
         for name, statement in columns.items():
@@ -65,9 +67,22 @@ def _add_first_attempt_speed_columns(engine: Engine) -> None:
         connection.execute(text("CREATE INDEX IF NOT EXISTS ix_question_attempts_user_fact_created ON question_attempts (user_id, fact_id, created_at)"))
 
 
+def _add_training_policy_columns(engine: Engine) -> None:
+    inspector = inspect(engine)
+    if not inspector.has_table("users"):
+        return
+    existing = {column["name"] for column in inspector.get_columns("users")}
+    with engine.begin() as connection:
+        if "required_tables" not in existing:
+            connection.execute(text("ALTER TABLE users ADD COLUMN required_tables VARCHAR(64) NOT NULL DEFAULT '[]'"))
+        if "mega_evolution_until" not in existing:
+            connection.execute(text("ALTER TABLE users ADD COLUMN mega_evolution_until DATETIME"))
+
+
 MIGRATIONS: list[Migration] = [
     (1, _add_missing_user_columns),
     (2, _add_first_attempt_speed_columns),
+    (3, _add_training_policy_columns),
 ]
 
 

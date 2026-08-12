@@ -30,7 +30,7 @@ def test_migrations_upgrade_legacy_schema_and_are_repeatable(tmp_path) -> None:
         versions = connection.execute(text("SELECT version FROM schema_migrations ORDER BY version")).scalars().all()
         is_admin = connection.execute(text("SELECT is_admin FROM users WHERE id = 1")).scalar_one()
 
-    assert {"creature_type", "energy", "xp", "is_admin"}.issubset(user_columns)
+    assert {"creature_type", "energy", "xp", "is_admin", "required_tables", "mega_evolution_until"}.issubset(user_columns)
     assert {"first_attempt_response_time_ms", "first_attempt_response_count"}.issubset(stat_columns)
-    assert versions == [1, 2]
+    assert versions == [1, 2, 3]
     assert is_admin == 1

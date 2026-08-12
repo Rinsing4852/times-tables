@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import csv
 import io
+import json
 import os
 import secrets
 import sqlite3
@@ -69,6 +70,7 @@ from .schemas import (
     PracticeAnswer,
     PracticeQuestionRequest,
     PracticeStart,
+    RequiredTablesUpdate,
     TablesRequest,
     UserAdminUpdate,
     UserCreate,
@@ -177,7 +179,29 @@ def user_payload(user: User) -> dict:
         "creature_name": user.creature_name,
         "is_admin": bool(user.is_admin),
         "password_set": bool(user.password_hash),
+        "required_tables": parse_required_tables(user),
     }
+
+
+def clean_tables(tables: list[int]) -> list[int]:
+    return sorted({table for table in tables if 2 <= table <= 12})
+
+
+def parse_required_tables(user: User) -> list[int]:
+    try:
+        parsed = json.loads(user.required_tables or "[]")
+    except (TypeError, json.JSONDecodeError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return clean_tables([item for item in parsed if isinstance(item, int) and not isinstance(item, bool)])
+
+
+def effective_tables(user: User, requested_tables: list[int]) -> list[int]:
+    tables = clean_tables(requested_tables + parse_required_tables(user))
+    if not tables:
+        raise HTTPException(status_code=400, detail="Select at least one table from 2 to 12")
+    return tables
 
 
 def create_local_user(db: Session, payload: UserCreate, allow_admin: bool) -> User:
@@ -200,10 +224,10 @@ def create_local_user(db: Session, payload: UserCreate, allow_admin: bool) -> Us
 
 
 def facts_for_tables(db: Session, tables: list[int]) -> list[Fact]:
-    clean_tables = sorted({table for table in tables if 2 <= table <= 12})
-    if not clean_tables:
+    tables = clean_tables(tables)
+    if not tables:
         raise HTTPException(status_code=400, detail="Select at least one table from 2 to 12")
-    return list(db.scalars(select(Fact).where(Fact.a.in_(clean_tables))).all())
+    return list(db.scalars(select(Fact).where(Fact.a.in_(tables))).all())
 
 
 def get_learning_session(db: Session, session_id: str, current_user: User) -> LearningSession:
@@ -255,6 +279,7 @@ def reset_user_progress(db: Session, user: User) -> None:
     user.weekly_practice_days = "[]"
     user.last_weekly_reset_at = None
     user.weekly_goal_awarded_week = ""
+    user.mega_evolution_until = None
 
 
 def get_or_create_stat(db: Session, user_id: int, fact_id: int) -> FactStat:
@@ -458,6 +483,25 @@ def admin_update_user(admin_user_id: int, target_user_id: int, payload: UserAdmi
     return user_payload(user)
 
 
+@app.put("/admin/{admin_user_id}/users/{target_user_id}/required-tables")
+def admin_update_required_tables(
+    admin_user_id: int,
+    target_user_id: int,
+    payload: RequiredTablesUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(authenticated_user),
+) -> dict:
+    authorize_admin(current_user, admin_user_id)
+    user = get_user(db, target_user_id)
+    invalid = [table for table in payload.tables if table < 2 or table > 12]
+    if invalid:
+        raise HTTPException(status_code=400, detail="Required tables must be between 2 and 12")
+    user.required_tables = json.dumps(clean_tables(payload.tables))
+    db.commit()
+    db.refresh(user)
+    return user_payload(user)
+
+
 @app.post("/admin/{admin_user_id}/users/{target_user_id}/reset-progress")
 def admin_reset_progress(admin_user_id: int, target_user_id: int, db: Session = Depends(get_db), current_user: User = Depends(authenticated_user)) -> dict:
     authorize_admin(current_user, admin_user_id)
@@ -629,11 +673,20 @@ def award_learning_session(db: Session, learning_session: LearningSession, user:
         weekly_goal_completed=weekly_goal_completed,
     )
     quest = db.get(TrainingQuest, learning_session.quest_id) if learning_session.quest_id else None
+    mega_evolution_unlocked = False
     if quest and quest.status != "completed":
         quest.status = "completed"
         quest.completed_at = now
         xp_gained += quest.reward_xp
         reward_reasons.append(f"{quest.title} +{quest.reward_xp} XP")
+        if (
+            quest.quest_type == "discovery"
+            and learning_session.expected_questions > 0
+            and learning_session.first_attempt_correct / learning_session.expected_questions >= 0.5
+        ):
+            user.mega_evolution_until = now + timedelta(hours=24)
+            mega_evolution_unlocked = True
+            reward_reasons.append("Mega Form unlocked for 24 hours")
     if full_energy_bonus_xp:
         xp_gained += full_energy_bonus_xp
         reward_reasons.append(f"Full-energy training bonus +{full_energy_bonus_xp} XP")
@@ -676,6 +729,7 @@ def award_learning_session(db: Session, learning_session: LearningSession, user:
         stage_message=stage_message,
         evolution_from=previous_stage if new_stage != previous_stage else None,
         evolution_to=new_stage if new_stage != previous_stage else None,
+        mega_evolution_unlocked=mega_evolution_unlocked,
     )
 
 
@@ -762,13 +816,15 @@ def list_facts(db: Session = Depends(get_db)) -> list[dict]:
 @app.post("/practice/start")
 def start_practice(payload: PracticeStart, db: Session = Depends(get_db), current_user: User = Depends(authenticated_user)) -> dict:
     authorize_profile(current_user, payload.user_id)
-    facts_for_tables(db, payload.tables)
+    user = get_user(db, payload.user_id)
+    tables = effective_tables(user, payload.tables)
+    facts_for_tables(db, tables)
     learning_session = LearningSession(
         id=secrets.token_urlsafe(24),
         user_id=payload.user_id,
         mode="practice",
         question_mode=payload.question_mode,
-        selected_tables=",".join(str(table) for table in sorted(set(payload.tables))),
+        selected_tables=",".join(str(table) for table in tables),
         expected_questions=payload.question_count,
     )
     db.add(learning_session)
@@ -901,8 +957,9 @@ def answer_practice_question(payload: PracticeAnswer, db: Session = Depends(get_
 @app.post("/challenge/start")
 def start_challenge(payload: ChallengeStart, db: Session = Depends(get_db), current_user: User = Depends(authenticated_user)) -> dict:
     authorize_profile(current_user, payload.user_id)
-    get_user(db, payload.user_id)
-    facts = facts_for_tables(db, payload.tables)
+    user = get_user(db, payload.user_id)
+    tables = effective_tables(user, payload.tables)
+    facts = facts_for_tables(db, tables)
     stats = db.scalars(select(FactStat).where(FactStat.user_id == payload.user_id)).all()
     stats_by_fact_id = {stat.fact_id: stat for stat in stats}
     recent_by_fact_id = recent_attempts_by_fact(db, payload.user_id)
@@ -911,7 +968,7 @@ def start_challenge(payload: ChallengeStart, db: Session = Depends(get_db), curr
         user_id=payload.user_id,
         mode="challenge",
         question_mode=payload.question_mode,
-        selected_tables=",".join(str(table) for table in sorted(set(payload.tables))),
+        selected_tables=",".join(str(table) for table in tables),
         expected_questions=payload.question_count,
     )
     db.add(learning_session)
@@ -927,7 +984,7 @@ def start_challenge(payload: ChallengeStart, db: Session = Depends(get_db), curr
             available = [fact for fact in facts if fact.id in unused_fact_ids]
         fact = choose_fact(available, stats_by_fact_id, recent_by_fact_id)
         unused_fact_ids.discard(fact.id)
-        question_type = choice(question_types_for_mode(payload.question_mode, payload.tables))
+        question_type = choice(question_types_for_mode(payload.question_mode, tables))
         prompt, _ = question_for_fact(fact, question_type)
         question = LearningSessionQuestion(
             session_id=learning_session.id,

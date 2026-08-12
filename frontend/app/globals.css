@@ -299,6 +299,14 @@ h2 {
   background: #edf2f7;
   color: var(--ink);
   border: 2px solid transparent;
+  display: grid;
+  place-items: center;
+  gap: 1px;
+}
+
+.tableButton small {
+  font-size: 0.58rem;
+  line-height: 1;
 }
 
 .tableButton.selected {
@@ -309,6 +317,13 @@ h2 {
 .tableButton:disabled {
   cursor: not-allowed;
   opacity: 0.78;
+}
+
+.tableButton.locked {
+  border-color: #7757b8;
+  background: #eee8ff;
+  color: #3f236f;
+  opacity: 1;
 }
 
 .collapsiblePanel {
@@ -518,6 +533,48 @@ h2 {
 .creatureAvatar.stage-hatchling {
   width: 158px;
   height: 158px;
+}
+
+.creatureAvatar.mega {
+  width: 210px;
+  height: 210px;
+  filter: saturate(1.25);
+}
+
+.creatureAvatar.mega::before {
+  content: "";
+  position: absolute;
+  inset: 8px;
+  border: 5px double #ffd84d;
+  border-radius: 50%;
+  box-shadow: 0 0 0 8px rgba(122, 76, 214, 0.24), 0 0 28px #ffd84d;
+  animation: megaPulse 1.8s ease-in-out infinite alternate;
+}
+
+.megaStatus {
+  width: fit-content;
+  border: 2px solid #6c43b8;
+  border-radius: 999px;
+  background: #fff2a8;
+  color: #462675;
+  padding: 5px 10px;
+}
+
+.megaUnlock {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  color: #462675;
+}
+
+.megaUnlock .creatureAvatar {
+  width: 150px;
+  height: 150px;
+}
+
+@keyframes megaPulse {
+  from { transform: scale(0.96) rotate(-2deg); opacity: 0.75; }
+  to { transform: scale(1.03) rotate(2deg); opacity: 1; }
 }
 
 .creatureAvatar.stage-youngling {
@@ -1366,6 +1423,24 @@ h2 {
   min-width: 0;
 }
 
+.adminRequiredTables {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 7px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+.adminRequiredTables > span {
+  color: var(--ink);
+  font-weight: 900;
+}
+
+.adminRequiredTables > small {
+  color: var(--muted);
+  font-weight: 700;
+}
+
 .adminToggle {
   justify-content: center;
 }
@@ -1613,7 +1688,7 @@ h2 {
 }
 
 .heatCell {
-  min-height: 54px;
+  min-height: 44px;
   min-width: 0;
   display: grid;
   place-items: center;
@@ -1625,94 +1700,29 @@ h2 {
   font-weight: 900;
 }
 
-.heatCell span {
-  white-space: nowrap;
-}
-
-.heatCell small {
-  font-size: 0.72rem;
-  font-weight: 900;
-  text-transform: uppercase;
-}
-
 .heatCell.empty {
   background: #d9dee7;
   color: #101820;
 }
 
-.heatCell.green {
-  background: #74b82d;
-}
+.heatCell.heat0,
+.heatLegend .heat0 { background: #55a630; }
 
-.heatCell.amber {
-  background: #f2d133;
-}
+.heatCell.heat1,
+.heatLegend .heat1 { background: #aacc32; }
 
-.heatCell.red {
-  background: #d71f27;
-  color: white;
-}
+.heatCell.heat2,
+.heatLegend .heat2 { background: #f2d43d; }
 
-.heatCell.speed0,
-.heatLegend .speed0 {
-  background: #78bd35;
-}
+.heatCell.heat3,
+.heatLegend .heat3 { background: #ef9934; }
 
-.heatCell.speed1,
-.heatLegend .speed1 {
-  background: #8ec63f;
-}
-
-.heatCell.speed2,
-.heatLegend .speed2 {
-  background: #bad532;
-}
-
-.heatCell.speed3,
-.heatLegend .speed3 {
-  background: #d8dc2a;
-}
-
-.heatCell.speed4,
-.heatLegend .speed4 {
-  background: #f1d431;
-}
-
-.heatCell.speed5,
-.heatLegend .speed5 {
-  background: #f0ae2e;
-}
-
-.heatCell.speed6,
-.heatLegend .speed6 {
-  background: #ee982d;
-}
-
-.heatCell.speed7,
-.heatLegend .speed7 {
-  background: #ed7f2d;
-}
-
-.heatCell.speed8,
-.heatLegend .speed8 {
-  background: #e95f2a;
-}
-
-.heatCell.speed9,
-.heatLegend .speed9 {
-  background: #e04226;
-  color: white;
-}
-
-.heatCell.speed10,
-.heatLegend .speed10 {
-  background: #d51f26;
-  color: white;
-}
+.heatCell.heat4,
+.heatLegend .heat4 { background: #d83a32; color: white; }
 
 .heatLegend {
   display: grid;
-  grid-template-columns: repeat(12, minmax(72px, 1fr));
+  grid-template-columns: repeat(6, minmax(82px, 1fr));
   gap: 2px;
   margin-top: 10px;
   overflow-x: auto;

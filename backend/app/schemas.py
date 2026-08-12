@@ -30,6 +30,10 @@ class UserAdminUpdate(BaseModel):
     password: Optional[str] = Field(default=None, max_length=80)
 
 
+class RequiredTablesUpdate(BaseModel):
+    tables: list[int] = Field(default_factory=list, max_length=11)
+
+
 class UserOut(BaseModel):
     id: int
     name: str

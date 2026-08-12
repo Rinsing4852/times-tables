@@ -30,6 +30,7 @@ class DummyUser:
     weekly_goal_awarded_week = ""
     unlocked_cosmetics = '["starter-star"]'
     selected_cosmetic = "starter-star"
+    mega_evolution_until = None
 
 
 def test_energy_gain_matches_session_lengths() -> None:
@@ -125,3 +126,14 @@ def test_creature_payload_includes_evolution_event() -> None:
 
     assert payload["evolution_from"] == "Egg"
     assert payload["evolution_to"] == "Hatchling"
+
+
+def test_creature_payload_only_exposes_active_mega_form() -> None:
+    user = DummyUser()
+    user.mega_evolution_until = datetime.now(timezone.utc) + timedelta(hours=24)
+
+    payload = creature_payload(user, mega_evolution_unlocked=True)
+
+    assert payload["mega_evolution_active"] is True
+    assert payload["mega_evolution_unlocked"] is True
+    assert payload["mega_evolution_until"] is not None
