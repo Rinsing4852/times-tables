@@ -101,7 +101,7 @@ No `git pull`, source checkout, `--build`, GitHub release attachment, or in-app 
 
 ### Move An Existing Source-Build Stack
 
-For an existing installation that currently builds from `/mnt/user/appdata/recallforge-source`, update the repository one final time and recreate it with the image-based file:
+For an existing installation that currently builds from `/mnt/user/appdata/recallforge-source`, you can update it from the terminal with the image-based file:
 
 ```bash
 cd /mnt/user/appdata/recallforge-source
@@ -110,7 +110,19 @@ docker compose -f compose.dockge.yml pull
 docker compose -f compose.dockge.yml up -d --force-recreate
 ```
 
-The persistent data path is unchanged, so profiles, statistics, creatures, and progress remain in place. After this migration, use Dockge's **Update** button for future versions.
+The persistent data path is unchanged, so profiles, statistics, creatures, and progress remain in place.
+
+Running these commands from `recallforge-source` does not transfer ownership of the stack to Dockge. Dockge will show it as active but not managed. Terminal updates will continue to work normally.
+
+To make the stack manageable through Dockge:
+
+1. Take a Recall Forge backup from the admin settings.
+2. In Dockge, create a new stack named `recall-forge` and paste the contents of `compose.dockge.yml` into its compose editor.
+3. Add `UNRAID_LAN_IP`, `RECALL_FORGE_PORT`, `TIMES_TABLES_DATA_DIR`, `APP_TIMEZONE`, and `ADMIN_PASSWORD_MIN_LENGTH` from `.env.unraid.example` to the stack environment.
+4. Stop the old terminal-managed stack with `docker compose -f compose.dockge.yml down` from `/mnt/user/appdata/recallforge-source`.
+5. Start the new stack in Dockge.
+
+`docker compose down` removes the old containers and network, but it does not remove the bind-mounted SQLite database under `/mnt/user/appdata/times-tables/data`. Do not add `--volumes` and do not delete that data directory.
 
 ### Pin Or Roll Back An Image
 
