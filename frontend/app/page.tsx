@@ -156,7 +156,8 @@ const STAGE_SLUGS: Record<string, string> = {
   Hatchling: "hatchling",
   Youngling: "youngling",
   Explorer: "explorer",
-  Champion: "champion"
+  Champion: "champion",
+  Mega: "mega"
 };
 const CREATURE_SLUGS: Record<string, string> = {
   Blob: "blob",
@@ -718,7 +719,7 @@ function CreatureHome({
 }
 
 function CreatureAvatar({ type, stage, cosmetic = "starter-star", mega = false }: { type: string; stage: string; cosmetic?: string; mega?: boolean }) {
-  const displayedStage = mega ? "Champion" : stage;
+  const displayedStage = mega ? "Mega" : stage;
   const stageAsset = creatureAsset(type, displayedStage);
   return (
     <div className={`creatureAvatar ${type.toLowerCase().replaceAll(" ", "-")} stage-${displayedStage.toLowerCase()} ${cosmetic} ${mega ? "mega" : ""}`} role="img" aria-label={`${type} ${mega ? "temporary Mega Form" : `${stage} stage`}`}>

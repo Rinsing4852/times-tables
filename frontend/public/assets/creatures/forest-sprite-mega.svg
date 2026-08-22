@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320" role="img" aria-label="Forest Sprite Mega Form">
+  <defs>
+    <linearGradient id="spriteMegaBody" x1="115" y1="78" x2="203" y2="277" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#e8ffb1"/><stop offset=".48" stop-color="#72d26b"/><stop offset="1" stop-color="#277a5c"/>
+    </linearGradient>
+    <linearGradient id="spriteMegaLeaf" x1="160" y1="15" x2="160" y2="128" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#a8f36f"/><stop offset="1" stop-color="#31a461"/>
+    </linearGradient>
+  </defs>
+  <ellipse cx="160" cy="284" rx="103" ry="15" fill="#172033" opacity=".14"/>
+  <path d="M119 98C84 72 66 45 64 15M97 74 52 67M82 51 95 21M201 98c35-26 53-53 55-83M223 74l45-7M238 51l-13-30" fill="none" stroke="#81543a" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M64 15c-25 6-35 21-30 44 23 0 37-12 43-34M256 15c25 6 35 21 30 44-23 0-37-12-43-34M52 67c-23 8-30 23-23 43 22-2 34-14 38-34M268 67c23 8 30 23 23 43-22-2-34-14-38-34" fill="url(#spriteMegaLeaf)" stroke="#172033" stroke-width="8" stroke-linejoin="round"/>
+  <path d="M103 106 50 121l34 31-27 37 54-2M217 106l53 15-34 31 27 37-54-2" fill="#79db68" stroke="#172033" stroke-width="9" stroke-linejoin="round"/>
+  <path d="M160 69c-46 0-75 38-75 101v48c0 44 29 66 75 66s75-22 75-66v-48c0-63-29-101-75-101Z" fill="url(#spriteMegaBody)" stroke="#172033" stroke-width="11"/>
+  <path d="M123 89c-2-42 17-65 37-77 20 12 39 35 37 77-24-17-50-17-74 0Z" fill="url(#spriteMegaLeaf)" stroke="#172033" stroke-width="9" stroke-linejoin="round"/>
+  <path d="M105 181 57 236M215 181l48 55" stroke="#81543a" stroke-width="18" stroke-linecap="round"/>
+  <path d="M128 255 109 290M192 255l19 35" stroke="#81543a" stroke-width="19" stroke-linecap="round"/>
+  <circle cx="132" cy="154" r="9" fill="#172033"/><circle cx="188" cy="154" r="9" fill="#172033"/>
+  <path d="M139 181q21 20 42 0" fill="none" stroke="#172033" stroke-width="7" stroke-linecap="round"/>
+  <path d="M116 213q44 37 88 0" fill="#b97a46" stroke="#172033" stroke-width="8"/>
+  <path d="M160 211v52M137 236h46" stroke="#eaffc8" stroke-width="7" stroke-linecap="round" opacity=".75"/>
+  <circle cx="42" cy="207" r="9" fill="#ffe26a"/><circle cx="278" cy="214" r="7" fill="#91f28c"/>
+</svg>

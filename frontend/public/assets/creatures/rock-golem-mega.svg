@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320" role="img" aria-label="Rock Golem Mega Form">
+  <defs>
+    <linearGradient id="golemMegaBody" x1="83" y1="85" x2="238" y2="281" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#eeeae2"/><stop offset=".5" stop-color="#9e9993"/><stop offset="1" stop-color="#555b6a"/>
+    </linearGradient>
+    <linearGradient id="golemMegaCrystal" x1="160" y1="22" x2="160" y2="247" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#b9f7ff"/><stop offset=".5" stop-color="#56d9f2"/><stop offset="1" stop-color="#6b63dc"/>
+    </linearGradient>
+  </defs>
+  <ellipse cx="160" cy="286" rx="118" ry="15" fill="#172033" opacity=".15"/>
+  <path d="m77 121-35-57 55 20 12-57 35 59M243 121l35-57-55 20-12-57-35 59" fill="url(#golemMegaCrystal)" stroke="#172033" stroke-width="10" stroke-linejoin="round"/>
+  <path d="m128 88 11-70 22 40 34-45 5 76" fill="url(#golemMegaCrystal)" stroke="#172033" stroke-width="10" stroke-linejoin="round"/>
+  <path d="M160 72 236 104l41 82-31 80-60 27-26-18-26 18-60-27-31-80 41-82Z" fill="url(#golemMegaBody)" stroke="#172033" stroke-width="12" stroke-linejoin="round"/>
+  <path d="M75 151 22 169 8 224l44 35 50-42M245 151l53 18 14 55-44 35-50-42" fill="#767783" stroke="#172033" stroke-width="12" stroke-linejoin="round"/>
+  <path d="m40 174 26 19-13 28-32-4M280 174l-26 19 13 28 32-4" fill="url(#golemMegaCrystal)" stroke="#172033" stroke-width="8" stroke-linejoin="round"/>
+  <path d="M119 136 93 119M201 136l26-17" stroke="#ecfaff" stroke-width="11" stroke-linecap="round" opacity=".75"/>
+  <path d="m160 172 27 37-27 45-27-45Z" fill="url(#golemMegaCrystal)" stroke="#172033" stroke-width="8"/>
+  <path d="M160 191v35M143 209h34" stroke="#fff" stroke-width="7" stroke-linecap="round"/>
+  <circle cx="129" cy="133" r="9" fill="#172033"/><circle cx="191" cy="133" r="9" fill="#172033"/>
+  <path d="M137 160q23 20 46 0" fill="none" stroke="#172033" stroke-width="8" stroke-linecap="round"/>
+  <path d="M118 269 91 294M202 269l27 25" stroke="#172033" stroke-width="24" stroke-linecap="round"/>
+  <path d="M24 81h30M39 66v30M266 41h28M280 27v28" stroke="#62dff2" stroke-width="7" stroke-linecap="round"/>
+</svg>

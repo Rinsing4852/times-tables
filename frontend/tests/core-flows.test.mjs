@@ -85,4 +85,13 @@ test("temporary Mega Form has a visible unlock state", () => {
   assert.match(pageSource, /Mega Form unlocked for 24 hours/);
   assert.match(pageSource, /mega_evolution_active/);
   assert.match(pageSource, /mega=\{creature\.mega_evolution_active\}/);
+  assert.match(pageSource, /mega \? "Mega" : stage/);
+
+  for (const type of ["blob", "dragon", "robot", "forest-sprite", "rock-golem", "space-beast"]) {
+    const filename = `${type}-mega.svg`;
+    assert.ok(creatureAssets.includes(filename), `${filename} missing`);
+    const source = readFileSync(join(root, "public/assets/creatures", filename), "utf8");
+    assert.match(source, /viewBox="0 0 320 320"/);
+    assert.match(source, /aria-label="[^"]+ Mega Form"/);
+  }
 });

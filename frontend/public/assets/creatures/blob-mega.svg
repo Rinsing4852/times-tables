@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320" role="img" aria-label="Blob Mega Form">
+  <defs>
+    <linearGradient id="blobMegaBody" x1="94" y1="55" x2="225" y2="270" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#d6fff7"/><stop offset=".42" stop-color="#54e5c2"/><stop offset="1" stop-color="#0b8f91"/>
+    </linearGradient>
+    <linearGradient id="blobMegaCrystal" x1="160" y1="24" x2="160" y2="101" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fff8a6"/><stop offset="1" stop-color="#ffb82e"/>
+    </linearGradient>
+  </defs>
+  <ellipse cx="160" cy="283" rx="108" ry="15" fill="#172033" opacity=".14"/>
+  <path d="M48 184C15 170 10 136 31 113c10 28 29 36 54 29M272 184c33-14 38-48 17-71-10 28-29 36-54 29" fill="#4de2c3" stroke="#172033" stroke-width="9" stroke-linejoin="round"/>
+  <path d="M75 226c-30 11-48 31-49 55 26-17 51-17 73-4M245 226c30 11 48 31 49 55-26-17-51-17-73-4" fill="#30cbb1" stroke="#172033" stroke-width="10" stroke-linejoin="round"/>
+  <path d="M160 58C92 58 48 110 48 190c0 59 46 88 112 88s112-29 112-88c0-80-44-132-112-132Z" fill="url(#blobMegaBody)" stroke="#172033" stroke-width="11" stroke-linejoin="round"/>
+  <path d="M107 84 122 41l29 27 10-47 13 47 28-27 12 43-31 23h-46Z" fill="url(#blobMegaCrystal)" stroke="#172033" stroke-width="9" stroke-linejoin="round"/>
+  <path d="M91 143c13-30 33-46 62-52" fill="none" stroke="#fff" stroke-width="12" stroke-linecap="round" opacity=".48"/>
+  <circle cx="126" cy="168" r="10" fill="#172033"/><circle cx="194" cy="168" r="10" fill="#172033"/>
+  <path d="M136 199q24 24 48 0" fill="none" stroke="#172033" stroke-width="8" stroke-linecap="round"/>
+  <path d="m160 207 13 23 26 5-18 19 4 27-25-12-25 12 4-27-18-19 26-5Z" fill="#ffe05e" stroke="#172033" stroke-width="7" stroke-linejoin="round"/>
+  <circle cx="38" cy="74" r="13" fill="#71f0da" stroke="#172033" stroke-width="6"/><circle cx="278" cy="61" r="9" fill="#ffe05e" stroke="#172033" stroke-width="5"/>
+</svg>

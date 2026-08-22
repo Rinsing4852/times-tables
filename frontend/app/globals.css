@@ -536,9 +536,9 @@ h2 {
 }
 
 .creatureAvatar.mega {
-  width: 210px;
-  height: 210px;
-  filter: saturate(1.25);
+  width: 226px;
+  height: 226px;
+  filter: saturate(1.12);
 }
 
 .creatureAvatar.mega::before {
@@ -547,8 +547,13 @@ h2 {
   inset: 8px;
   border: 5px double #ffd84d;
   border-radius: 50%;
-  box-shadow: 0 0 0 8px rgba(122, 76, 214, 0.24), 0 0 28px #ffd84d;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.75) 0 45%, rgba(122, 76, 214, 0.18) 68%, transparent 70%);
+  box-shadow: 0 0 0 8px rgba(122, 76, 214, 0.24), 0 0 32px #ffd84d;
   animation: megaPulse 1.8s ease-in-out infinite alternate;
+}
+
+.creatureAvatar.stage-mega .creatureStageAsset {
+  filter: drop-shadow(0 20px 13px rgba(54, 31, 103, 0.24));
 }
 
 .megaStatus {
