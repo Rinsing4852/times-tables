@@ -31,6 +31,17 @@ def test_migrations_upgrade_legacy_schema_and_are_repeatable(tmp_path) -> None:
         is_admin = connection.execute(text("SELECT is_admin FROM users WHERE id = 1")).scalar_one()
 
     assert {"creature_type", "energy", "xp", "is_admin", "required_tables", "mega_evolution_until"}.issubset(user_columns)
-    assert {"first_attempt_response_time_ms", "first_attempt_response_count"}.issubset(stat_columns)
-    assert versions == [1, 2, 3]
+    assert {
+        "first_attempt_response_time_ms",
+        "first_attempt_response_count",
+        "learning_state",
+        "due_at",
+        "interval_days",
+        "successful_reviews",
+        "lapse_count",
+        "last_retrieval_at",
+    }.issubset(stat_columns)
+    attempt_columns = {column["name"] for column in inspector.get_columns("question_attempts")}
+    assert {"was_due_review", "learning_state_before"}.issubset(attempt_columns)
+    assert versions == [1, 2, 3, 4]
     assert is_admin == 1

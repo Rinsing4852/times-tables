@@ -238,6 +238,42 @@ def test_dashboard_keeps_first_recall_and_second_try_recovery_separate(api) -> N
     assert totals["accuracy"] == 0
     assert totals["second_attempt_correct"] == 1
 
+    dashboard = client.get(f"/dashboard/{admin['id']}").json()
+    assert dashboard["retention"]["state_counts"]["acquiring"] == 1
+    assert dashboard["retention"]["review_accuracy_7_days"]["accuracy"] is None
+
+
+def test_evaluation_export_is_aggregate_and_omits_identity_and_answers(api) -> None:
+    client, testing_session = api
+    admin = create_admin(client)
+    login(client, admin["id"], "246824")
+    started = client.post(
+        "/practice/start",
+        json={"user_id": admin["id"], "tables": [6], "question_mode": "mixed", "question_count": 1},
+    ).json()
+    question = client.post("/practice/question", json={"session_id": started["session_id"]}).json()
+    with testing_session() as db:
+        record = db.get(LearningSessionQuestion, question["question_id"])
+        fact = db.get(Fact, record.fact_id)
+        _, correct_answer = question_for_fact(fact, record.question_type)
+    client.post(
+        "/practice/answer",
+        json={
+            "session_id": started["session_id"],
+            "question_id": question["question_id"],
+            "answer": str(correct_answer),
+            "response_time_ms": 1200,
+        },
+    )
+
+    response = client.get(f"/admin/{admin['id']}/evaluation.csv")
+
+    assert response.status_code == 200
+    assert "profile_key,date,first_attempts" in response.text
+    assert "Parent" not in response.text
+    assert question["prompt"] not in response.text
+    assert str(correct_answer) not in response.text.splitlines()[0]
+
 
 def test_challenge_rejects_answers_not_matching_issued_order(api) -> None:
     client, _ = api

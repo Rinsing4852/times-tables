@@ -79,10 +79,69 @@ def _add_training_policy_columns(engine: Engine) -> None:
             connection.execute(text("ALTER TABLE users ADD COLUMN mega_evolution_until DATETIME"))
 
 
+def _add_fact_learning_state(engine: Engine) -> None:
+    inspector = inspect(engine)
+    if inspector.has_table("fact_stats"):
+        existing_stats = {column["name"] for column in inspector.get_columns("fact_stats")}
+        stat_columns = {
+            "learning_state": "ALTER TABLE fact_stats ADD COLUMN learning_state VARCHAR(16) NOT NULL DEFAULT 'unseen'",
+            "due_at": "ALTER TABLE fact_stats ADD COLUMN due_at DATETIME",
+            "interval_days": "ALTER TABLE fact_stats ADD COLUMN interval_days INTEGER NOT NULL DEFAULT 0",
+            "successful_reviews": "ALTER TABLE fact_stats ADD COLUMN successful_reviews INTEGER NOT NULL DEFAULT 0",
+            "lapse_count": "ALTER TABLE fact_stats ADD COLUMN lapse_count INTEGER NOT NULL DEFAULT 0",
+            "last_retrieval_at": "ALTER TABLE fact_stats ADD COLUMN last_retrieval_at DATETIME",
+        }
+        with engine.begin() as connection:
+            for name, statement in stat_columns.items():
+                if name not in existing_stats:
+                    connection.execute(text(statement))
+            learning_columns = {"first_attempt_total", "first_attempt_correct", "current_streak", "last_seen"}
+            if learning_columns.issubset(existing_stats):
+                connection.execute(
+                    text(
+                        "UPDATE fact_stats SET learning_state = CASE "
+                        "WHEN first_attempt_total >= 5 AND first_attempt_correct * 1.0 / first_attempt_total >= 0.8 "
+                        "AND current_streak >= 2 THEN 'reviewing' ELSE 'acquiring' END, "
+                        "last_retrieval_at = COALESCE(last_retrieval_at, last_seen), "
+                        "interval_days = CASE WHEN first_attempt_total >= 5 AND first_attempt_correct * 1.0 / first_attempt_total >= 0.8 "
+                        "AND current_streak >= 2 THEN MAX(interval_days, 1) ELSE interval_days END, "
+                        "due_at = CASE WHEN first_attempt_total >= 5 AND first_attempt_correct * 1.0 / first_attempt_total >= 0.8 "
+                        "AND current_streak >= 2 AND due_at IS NULL THEN datetime(last_seen, '+1 day') ELSE due_at END "
+                        "WHERE first_attempt_total > 0 AND learning_state = 'unseen'"
+                    )
+                )
+            elif {"correct_count", "incorrect_count"}.issubset(existing_stats):
+                connection.execute(
+                    text(
+                        "UPDATE fact_stats SET learning_state = 'acquiring' "
+                        "WHERE correct_count + incorrect_count > 0 AND learning_state = 'unseen'"
+                    )
+                )
+            connection.execute(text("CREATE INDEX IF NOT EXISTS ix_fact_stats_user_due ON fact_stats (user_id, due_at)"))
+
+    inspector = inspect(engine)
+    if inspector.has_table("question_attempts"):
+        existing_attempts = {column["name"] for column in inspector.get_columns("question_attempts")}
+        with engine.begin() as connection:
+            if "was_due_review" not in existing_attempts:
+                connection.execute(text("ALTER TABLE question_attempts ADD COLUMN was_due_review BOOLEAN NOT NULL DEFAULT 0"))
+            if "learning_state_before" not in existing_attempts:
+                connection.execute(
+                    text("ALTER TABLE question_attempts ADD COLUMN learning_state_before VARCHAR(16) NOT NULL DEFAULT 'unseen'")
+                )
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_question_attempts_user_due_created "
+                    "ON question_attempts (user_id, was_due_review, created_at)"
+                )
+            )
+
+
 MIGRATIONS: list[Migration] = [
     (1, _add_missing_user_columns),
     (2, _add_first_attempt_speed_columns),
     (3, _add_training_policy_columns),
+    (4, _add_fact_learning_state),
 ]
 
 

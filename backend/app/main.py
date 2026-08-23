@@ -30,20 +30,15 @@ from .adaptive import (
     heat_colour_speed,
     normalize_answer,
     priority_score,
-    rolling_accuracy_improvement,
     question_types_for_mode,
     question_for_fact,
+    rolling_accuracy_improvement,
 )
 from .creatures import (
     CREATURE_TYPES,
-    add_weekly_practice_day,
     cosmetic_list,
     creature_payload,
     decayed_energy,
-    energy_gain_for_questions,
-    session_rewards,
-    sync_level_and_stage,
-    unlock_cosmetics,
 )
 from .config import local_date
 from .database import Base, SessionLocal, engine, get_db
@@ -60,7 +55,17 @@ from .models import (
     User,
 )
 from .models import TrainingQuest
+from .learning import (
+    award_learning_session,
+    get_or_create_stat,
+    learning_event_for_stat,
+    recent_attempts_by_fact,
+    record_stat,
+)
+from .profiles import clean_tables, effective_tables, parse_required_tables, reset_user_progress, user_payload
 from .quests import APP_VERSION, ensure_available_quests, quest_payload, quest_questions
+from .reports import evaluation_csv, retention_summary
+from .scheduler import choose_practice_fact, learning_state, review_is_due
 from .schemas import (
     ChallengeStart,
     ChallengeSubmit,
@@ -171,39 +176,6 @@ def password_matches(user: User, password: str) -> bool:
     return secrets.compare_digest(digest, user.password_hash)
 
 
-def user_payload(user: User) -> dict:
-    return {
-        "id": user.id,
-        "name": user.name,
-        "creature_type": user.creature_type,
-        "creature_name": user.creature_name,
-        "is_admin": bool(user.is_admin),
-        "password_set": bool(user.password_hash),
-        "required_tables": parse_required_tables(user),
-    }
-
-
-def clean_tables(tables: list[int]) -> list[int]:
-    return sorted({table for table in tables if 2 <= table <= 12})
-
-
-def parse_required_tables(user: User) -> list[int]:
-    try:
-        parsed = json.loads(user.required_tables or "[]")
-    except (TypeError, json.JSONDecodeError):
-        return []
-    if not isinstance(parsed, list):
-        return []
-    return clean_tables([item for item in parsed if isinstance(item, int) and not isinstance(item, bool)])
-
-
-def effective_tables(user: User, requested_tables: list[int]) -> list[int]:
-    tables = clean_tables(requested_tables + parse_required_tables(user))
-    if not tables:
-        raise HTTPException(status_code=400, detail="Select at least one table from 2 to 12")
-    return tables
-
-
 def create_local_user(db: Session, payload: UserCreate, allow_admin: bool) -> User:
     name = payload.name.strip()
     if not name:
@@ -244,96 +216,6 @@ def learning_question_payload(question: LearningSessionQuestion) -> dict:
         "fact_id": question.fact_id,
         "question_type": question.question_type,
         "prompt": question.prompt,
-    }
-
-
-def recent_attempts_by_fact(db: Session, user_id: int, limit: int = 1500) -> dict[int, list[QuestionAttempt]]:
-    attempts = db.scalars(
-        select(QuestionAttempt).where(QuestionAttempt.user_id == user_id).order_by(desc(QuestionAttempt.created_at)).limit(limit)
-    ).all()
-    grouped: dict[int, list[QuestionAttempt]] = defaultdict(list)
-    for attempt in attempts:
-        if len(grouped[attempt.fact_id]) < 10:
-            grouped[attempt.fact_id].append(attempt)
-    return grouped
-
-
-def reset_user_progress(db: Session, user: User) -> None:
-    db.query(LearningSession).filter(LearningSession.user_id == user.id).delete(synchronize_session=False)
-    challenge_ids = db.scalars(select(ChallengeSession.id).where(ChallengeSession.user_id == user.id)).all()
-    if challenge_ids:
-        db.query(ChallengeAttempt).filter(ChallengeAttempt.session_id.in_(challenge_ids)).delete(synchronize_session=False)
-    db.query(ChallengeSession).filter(ChallengeSession.user_id == user.id).delete(synchronize_session=False)
-    db.query(QuestionAttempt).filter(QuestionAttempt.user_id == user.id).delete(synchronize_session=False)
-    db.query(FactStat).filter(FactStat.user_id == user.id).delete(synchronize_session=False)
-    db.query(TrainingQuest).filter(TrainingQuest.user_id == user.id).delete(synchronize_session=False)
-    user.energy = 60
-    user.last_practised_at = None
-    user.total_questions_answered = 0
-    user.total_sessions_completed = 0
-    user.xp = 0
-    user.level = 1
-    user.stage = "Egg"
-    user.unlocked_cosmetics = '["starter-star"]'
-    user.selected_cosmetic = "starter-star"
-    user.weekly_practice_days = "[]"
-    user.last_weekly_reset_at = None
-    user.weekly_goal_awarded_week = ""
-    user.mega_evolution_until = None
-
-
-def get_or_create_stat(db: Session, user_id: int, fact_id: int) -> FactStat:
-    stat = db.scalar(select(FactStat).where(FactStat.user_id == user_id, FactStat.fact_id == fact_id))
-    if stat:
-        return stat
-    stat = FactStat(user_id=user_id, fact_id=fact_id)
-    db.add(stat)
-    db.flush()
-    return stat
-
-
-def record_stat(stat: FactStat, is_correct: bool, attempt_number: int, response_time_ms: int) -> None:
-    now = datetime.now(timezone.utc)
-    if is_correct:
-        stat.correct_count += 1
-    else:
-        stat.incorrect_count += 1
-        stat.last_failed_at = now
-
-    if attempt_number == 1:
-        stat.first_attempt_total += 1
-        stat.first_attempt_response_time_ms += response_time_ms
-        stat.first_attempt_response_count += 1
-        if is_correct:
-            stat.first_attempt_correct += 1
-            stat.current_streak += 1
-        else:
-            stat.current_streak = 0
-    elif attempt_number == 2:
-        stat.second_attempt_total += 1
-        if is_correct:
-            stat.second_attempt_correct += 1
-
-    stat.total_response_time_ms += response_time_ms
-    stat.response_count += 1
-    stat.last_seen = now
-
-
-def learning_event_for_stat(
-    stat: FactStat,
-    is_correct: bool,
-    question_type: str,
-    attempt_number: int,
-    recent_attempts: list[QuestionAttempt] | None = None,
-) -> dict:
-    previous_error_rate = 1 - (stat.first_attempt_correct / stat.first_attempt_total) if stat.first_attempt_total else 0
-    projected = list(recent_attempts or [])
-    projected.insert(0, QuestionAttempt(is_correct=is_correct, attempt_number=attempt_number, response_time_ms=0))
-    improvement = rolling_accuracy_improvement(projected)
-    return {
-        "practiced_weak_fact": attempt_number == 1 and stat.first_attempt_total >= 3 and previous_error_rate >= 0.35,
-        "improved_fact_accuracy": bool(attempt_number == 1 and improvement is not None and improvement >= 0.2),
-        "practiced_division": question_type.startswith("divide_"),
     }
 
 
@@ -618,6 +500,22 @@ def admin_progress_csv(admin_user_id: int, db: Session = Depends(get_db), curren
     )
 
 
+@app.get("/admin/{admin_user_id}/evaluation.csv")
+def admin_evaluation_csv(
+    admin_user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(authenticated_user),
+) -> Response:
+    authorize_admin(current_user, admin_user_id)
+    users = list(db.scalars(select(User).order_by(User.id)).all())
+    attempts = list(db.scalars(select(QuestionAttempt).order_by(QuestionAttempt.created_at)).all())
+    return Response(
+        evaluation_csv(users, attempts),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="recall-forge-evaluation.csv"'},
+    )
+
+
 @app.get("/creature-types")
 def creature_types() -> dict:
     return {"creature_types": CREATURE_TYPES}
@@ -651,86 +549,6 @@ def update_creature_cosmetic(user_id: int, payload: CreatureCosmeticUpdate, db: 
     db.commit()
     db.refresh(user)
     return creature_payload(user)
-
-
-def award_learning_session(db: Session, learning_session: LearningSession, user: User) -> dict:
-    if learning_session.reward_applied:
-        return creature_payload(user)
-    now = datetime.now(timezone.utc)
-    previous_level, previous_stage, _, _ = sync_level_and_stage(user)
-    energy_gained = energy_gain_for_questions(learning_session.completed_questions)
-    current_energy = decayed_energy(user, now)
-    full_energy_bonus_xp = 5 if current_energy >= 100 else 0
-    weekly_days_completed, weekly_goal_completed = add_weekly_practice_day(user, now)
-    xp_gained, reward_reasons = session_rewards(
-        mode="challenge" if learning_session.mode == "challenge" else "practice",
-        questions_completed=learning_session.completed_questions,
-        first_attempt_correct=learning_session.first_attempt_correct,
-        second_attempt_correct=learning_session.second_attempt_correct,
-        practiced_weak_fact=learning_session.practiced_weak_fact,
-        improved_fact_accuracy=learning_session.improved_fact_accuracy,
-        practiced_division=learning_session.practiced_division,
-        weekly_goal_completed=weekly_goal_completed,
-    )
-    quest = db.get(TrainingQuest, learning_session.quest_id) if learning_session.quest_id else None
-    mega_evolution_unlocked = False
-    if quest and quest.status != "completed":
-        quest.status = "completed"
-        quest.completed_at = now
-        xp_gained += quest.reward_xp
-        reward_reasons.append(f"{quest.title} +{quest.reward_xp} XP")
-        if (
-            quest.quest_type == "discovery"
-            and learning_session.expected_questions > 0
-            and learning_session.first_attempt_correct / learning_session.expected_questions >= 0.5
-        ):
-            user.mega_evolution_until = now + timedelta(hours=24)
-            mega_evolution_unlocked = True
-            reward_reasons.append("Mega Form unlocked for 24 hours")
-    if full_energy_bonus_xp:
-        xp_gained += full_energy_bonus_xp
-        reward_reasons.append(f"Full-energy training bonus +{full_energy_bonus_xp} XP")
-    user.energy = min(100, current_energy + energy_gained)
-    user.xp = (user.xp or 0) + xp_gained
-    user.last_practised_at = now
-    user.total_questions_answered = (user.total_questions_answered or 0) + learning_session.completed_questions
-    user.total_sessions_completed = (user.total_sessions_completed or 0) + 1
-    _, _, new_level, new_stage = sync_level_and_stage(user)
-    cosmetic_keys = []
-    if user.total_sessions_completed >= 1:
-        cosmetic_keys.append("spark-hat")
-    if user.total_sessions_completed >= 5:
-        cosmetic_keys.append("training-badge")
-    if user.total_sessions_completed >= 10:
-        cosmetic_keys.append("number-stones")
-    if weekly_goal_completed or weekly_days_completed >= 4:
-        cosmetic_keys.append("rhythm-stars")
-    if learning_session.improved_fact_accuracy or learning_session.practiced_weak_fact:
-        cosmetic_keys.append("growth-trail")
-    if learning_session.mode == "challenge":
-        cosmetic_keys.append("challenge-crest")
-    if learning_session.practiced_division:
-        cosmetic_keys.append("division-stones")
-    new_unlocks = unlock_cosmetics(user, cosmetic_keys)
-    stage_message = ""
-    if new_stage != previous_stage:
-        stage_message = f"{user.creature_name} has reached the {new_stage} stage."
-    elif new_level > previous_level:
-        stage_message = f"{user.creature_name} grew stronger."
-    learning_session.status = "completed"
-    learning_session.completed_at = now
-    learning_session.reward_applied = True
-    return creature_payload(
-        user,
-        energy_gained=energy_gained,
-        xp_gained=xp_gained,
-        reward_reasons=reward_reasons,
-        new_unlocks=new_unlocks,
-        stage_message=stage_message,
-        evolution_from=previous_stage if new_stage != previous_stage else None,
-        evolution_to=new_stage if new_stage != previous_stage else None,
-        mega_evolution_unlocked=mega_evolution_unlocked,
-    )
 
 
 @app.get("/users/{user_id}/quests")
@@ -857,8 +675,14 @@ def next_practice_question(payload: PracticeQuestionRequest, db: Session = Depen
         .order_by(desc(LearningSessionQuestion.position))
         .limit(1)
     )
-    available = [fact for fact in facts if fact.id != previous_fact_id] if len(facts) > 1 else facts
-    fact = choose_fact(available, stats_by_fact_id, recent_by_fact_id)
+    fact, _ = choose_practice_fact(
+        facts,
+        stats_by_fact_id,
+        recent_by_fact_id,
+        position=learning_session.completed_questions,
+        question_count=learning_session.expected_questions,
+        previous_fact_id=previous_fact_id,
+    )
     question_type = choice(question_types_for_mode(learning_session.question_mode, tables))
     prompt, _ = question_for_fact(fact, question_type)
     question = LearningSessionQuestion(
@@ -892,6 +716,9 @@ def answer_practice_question(payload: PracticeAnswer, db: Session = Depends(get_
     normalized = normalize_answer(payload.answer)
     is_correct = normalized == correct_answer
     recent_for_fact = recent_attempts_by_fact(db, learning_session.user_id).get(fact.id, [])
+    stat = get_or_create_stat(db, learning_session.user_id, fact.id)
+    state_before = learning_state(stat)
+    was_due_review = attempt_number == 1 and review_is_due(stat)
     attempt = QuestionAttempt(
         user_id=learning_session.user_id,
         fact_id=fact.id,
@@ -903,11 +730,12 @@ def answer_practice_question(payload: PracticeAnswer, db: Session = Depends(get_
         attempt_number=attempt_number,
         response_time_ms=payload.response_time_ms,
         mode="quest" if learning_session.mode == "quest" else "practice",
+        was_due_review=was_due_review,
+        learning_state_before=state_before,
     )
     db.add(attempt)
-    stat = get_or_create_stat(db, learning_session.user_id, fact.id)
     learning_event = learning_event_for_stat(stat, is_correct, question.question_type, attempt_number, recent_for_fact)
-    record_stat(stat, is_correct, attempt_number, payload.response_time_ms)
+    record_stat(stat, is_correct, attempt_number, payload.response_time_ms, recent_for_fact)
     question.attempts = attempt_number
     question_complete = is_correct or attempt_number == 2
     creature = None
@@ -1041,6 +869,9 @@ def submit_challenge(payload: ChallengeSubmit, db: Session = Depends(get_db), cu
         recent_for_fact = recent_attempts_by_fact(db, learning_session.user_id).get(fact.id, [])
         correct_count += int(is_correct)
         first_attempt_correct += int(is_correct)
+        stat = get_or_create_stat(db, learning_session.user_id, fact.id)
+        state_before = learning_state(stat)
+        was_due_review = review_is_due(stat)
         db.add(
             ChallengeAttempt(
                 session_id=session.id,
@@ -1065,14 +896,15 @@ def submit_challenge(payload: ChallengeSubmit, db: Session = Depends(get_db), cu
                 attempt_number=1,
                 response_time_ms=answer.response_time_ms,
                 mode="challenge",
+                was_due_review=was_due_review,
+                learning_state_before=state_before,
             )
         )
-        stat = get_or_create_stat(db, learning_session.user_id, fact.id)
         learning_event = learning_event_for_stat(stat, is_correct, question.question_type, 1, recent_for_fact)
         practiced_weak_fact = practiced_weak_fact or learning_event["practiced_weak_fact"]
         improved_fact_accuracy = improved_fact_accuracy or learning_event["improved_fact_accuracy"]
         practiced_division = practiced_division or learning_event["practiced_division"]
-        record_stat(stat, is_correct, 1, answer.response_time_ms)
+        record_stat(stat, is_correct, 1, answer.response_time_ms, recent_for_fact)
         question.attempts = 1
         question.completed = True
         results.append(
@@ -1183,6 +1015,11 @@ def dashboard(user_id: int, db: Session = Depends(get_db), current_user: User = 
                 "priority_score": round(priority_score(stat, recent_attempts=recent_by_fact_id.get(fact.id, [])), 3),
                 "improvement_delta": rolling_accuracy_improvement(recent_by_fact_id.get(fact.id, [])),
                 "last_seen": stat.last_seen.isoformat() if stat and stat.last_seen else None,
+                "learning_state": learning_state(stat),
+                "due_at": stat.due_at.isoformat() if stat and stat.due_at else None,
+                "interval_days": stat.interval_days if stat else 0,
+                "successful_reviews": stat.successful_reviews if stat else 0,
+                "lapse_count": stat.lapse_count if stat else 0,
             }
         )
 
@@ -1221,6 +1058,12 @@ def dashboard(user_id: int, db: Session = Depends(get_db), current_user: User = 
                 "accuracy": round(correct / total, 3) if total else None,
                 "average_time_ms": round(speed_total / speed_count) if speed_count else None,
                 "answers": total,
+                "secure_facts": sum(1 for cell in table_cells if cell["learning_state"] == "secure"),
+                "due_facts": sum(
+                    1
+                    for cell in table_cells
+                    if stats_by_fact_id.get(cell["fact_id"]) and review_is_due(stats_by_fact_id[cell["fact_id"]])
+                ),
             }
         )
 
@@ -1267,6 +1110,16 @@ def dashboard(user_id: int, db: Session = Depends(get_db), current_user: User = 
         }
         for day, values in sorted(daily.items())[-30:]
     ]
+    due_review_attempts = list(
+        db.scalars(
+            select(QuestionAttempt).where(
+                QuestionAttempt.user_id == user_id,
+                QuestionAttempt.attempt_number == 1,
+                QuestionAttempt.was_due_review == True,  # noqa: E712
+                QuestionAttempt.created_at >= datetime.now(timezone.utc) - timedelta(days=30),
+            )
+        ).all()
+    )
     return {
         "totals": totals,
         "cells": cells,
@@ -1277,4 +1130,5 @@ def dashboard(user_id: int, db: Session = Depends(get_db), current_user: User = 
         "improving": improving,
         "recent_history": recent_history,
         "progress_over_time": progress_over_time,
+        "retention": retention_summary(facts, stats_by_fact_id, due_review_attempts),
     }

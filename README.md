@@ -1,6 +1,6 @@
 # Recall Forge
 
-Recall Forge 0.8.0 is a self-hosted times tables practice app for local use. It is intentionally focused: authenticated local profiles, adaptive practice, smart training quests, challenge mode, heat maps, SQLite, no external accounts, no analytics, and no AI API. It also includes a light companion creature theme where practice gives the creature energy and XP while the learning engine stays focused on recall and spaced practice. Each species has a distinct five-stage evolution path and a dedicated transformation moment, but remains a calm maths companion rather than a needy care system.
+Recall Forge 0.9.0 is a self-hosted times tables practice app for local use. It is intentionally focused: authenticated local profiles, adaptive practice, scheduled review, smart training quests, challenge mode, heat maps, SQLite, no external accounts, no analytics, and no AI API. It also includes a light companion creature theme where practice gives the creature energy and XP while the learning engine stays focused on recall and spaced practice. Each species has a distinct five-stage evolution path and a dedicated transformation moment, but remains a calm maths companion rather than a needy care system.
 
 ## Stack
 
@@ -129,8 +129,8 @@ To make the stack manageable through Dockge:
 For controlled updates, replace `latest` on both `image:` lines with the same version, for example:
 
 ```yaml
-image: ghcr.io/rinsing4852/recall-forge-backend:0.8.0
-image: ghcr.io/rinsing4852/recall-forge-frontend:0.8.0
+image: ghcr.io/rinsing4852/recall-forge-backend:0.9.0
+image: ghcr.io/rinsing4852/recall-forge-frontend:0.9.0
 ```
 
 Keep both services on the same version. Take an admin database backup before rolling back across versions that include schema changes.
@@ -231,6 +231,11 @@ npm test
 - A safe creature companion per profile with type, name, energy, XP, level, stage, weekly goal, cosmetic unlocks, and 30 lightweight species-stage SVGs.
 - A visual five-stage growth path, six-species picker, and positive full-screen evolution moment.
 - Smart training quests generated from fact accuracy, speed, and recent mistakes.
+- Explicit unseen, acquiring, reviewing, and secure learning states with 1, 3, 7, 14, 30, and 60-day review intervals.
+- Practice sessions composed from due reviews, acquiring facts, and interleaved facts while retaining adaptive weighting.
+- Parent retention reporting with due/overdue facts and 7/30-day scheduled-review accuracy.
+- Installable PWA shell with an offline reconnection page; authenticated API data is never cached.
+- Pseudonymous home-evaluation CSV export with no profile names, prompts, or submitted answers.
 - A higher-reward explorer quest encourages tables that have had little or no practice.
 - Practice and challenge modes can be set to multiplication only, division only, or mixed questions.
 - Practice opens with a simple setup screen before the distraction-free answer surface.
@@ -248,6 +253,15 @@ priority_score = error_rate + slowness_score + spacing_score + recent_failure_bo
 Weak, slow, recently failed, or stale facts are selected more often. Consistently correct and fast facts gradually appear less often.
 Recent performance uses the latest attempts for each fact, so strong facts appear less often while never disappearing entirely.
 
+The staged plan for adding explicit acquisition, scheduled review, and retention measurement is documented in [docs/learning-roadmap.md](docs/learning-roadmap.md).
+
+Further references:
+
+- [Architecture](docs/architecture.md)
+- [Home evaluation](docs/home-evaluation.md)
+- [Operations and recovery](docs/operations.md)
+- [Release checklist](docs/releasing.md)
+
 ## Database Tables
 
 The backend applies ordered, repeatable schema migrations, auto-creates tables on startup, and seeds multiplication facts from 2x2 through 12x12.
@@ -258,6 +272,10 @@ The backend applies ordered, repeatable schema migrations, auto-creates tables o
 - `question_attempts`
 - `fact_stats`
 - `learning_sessions`
+
+## License
+
+Recall Forge is available under the [MIT License](LICENSE).
 - `learning_session_questions`
 - `challenge_sessions`
 - `challenge_attempts`

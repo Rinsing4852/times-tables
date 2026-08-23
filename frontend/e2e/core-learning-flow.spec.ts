@@ -109,3 +109,30 @@ test("phone dashboard contains the heat map without widening the page", async ({
   expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.width);
   await expect(page.locator(".heatMapFrame")).toBeVisible();
 });
+
+test("the local app shell registers its service worker", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop", "PWA registration only needs one browser project");
+  await page.goto("/");
+
+  const scriptUrl = await page.evaluate(async () => {
+    const registration = await navigator.serviceWorker.ready;
+    return registration.active?.scriptURL || "";
+  });
+
+  expect(scriptUrl).toMatch(/\/sw\.js$/);
+});
+
+test("parent progress shows retained-learning measures", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop", "Parent reporting only needs one browser project");
+  await page.goto("/");
+  await page.getByRole("button", { name: /Test Parent/ }).click();
+  await page.getByPlaceholder("Passcode").fill("246824");
+  await page.getByRole("button", { name: "Continue as Test Parent" }).click();
+  await page.getByText("Settings", { exact: true }).click();
+  await page.getByRole("button", { name: "Dashboard", exact: true }).click();
+  await page.getByRole("button", { name: "Progress", exact: true }).click();
+
+  await expect(page.getByRole("heading", { name: "Learning and retention" })).toBeVisible();
+  await expect(page.getByText("Ready to review", { exact: true })).toBeVisible();
+  await expect(page.getByText("7-day review accuracy", { exact: true })).toBeVisible();
+});

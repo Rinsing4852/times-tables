@@ -82,6 +82,8 @@ class QuestionAttempt(Base):
     attempt_number: Mapped[int] = mapped_column(Integer, nullable=False)
     response_time_ms: Mapped[int] = mapped_column(Integer, nullable=False)
     mode: Mapped[str] = mapped_column(String(16), nullable=False, default="practice")
+    was_due_review: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    learning_state_before: Mapped[str] = mapped_column(String(16), nullable=False, default="unseen")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     user: Mapped["User"] = relationship(back_populates="attempts")
@@ -108,6 +110,12 @@ class FactStat(Base):
     current_streak: Mapped[int] = mapped_column(Integer, default=0)
     last_seen: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     last_failed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    learning_state: Mapped[str] = mapped_column(String(16), nullable=False, default="unseen")
+    due_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    interval_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    successful_reviews: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    lapse_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_retrieval_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     fact: Mapped["Fact"] = relationship(back_populates="stats")
 

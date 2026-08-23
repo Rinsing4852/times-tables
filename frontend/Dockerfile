@@ -16,6 +16,8 @@ FROM node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV HOSTNAME=0.0.0.0
+ENV PORT=3000
 
 LABEL org.opencontainers.image.source="https://github.com/Rinsing4852/times-tables"
 LABEL org.opencontainers.image.description="Recall Forge Next.js frontend"
@@ -23,7 +25,8 @@ LABEL org.opencontainers.image.description="Recall Forge Next.js frontend"
 COPY --from=builder --chown=node:node /app/public ./public
 COPY --from=builder --chown=node:node /app/.next/standalone ./
 COPY --from=builder --chown=node:node /app/.next/static ./.next/static
+COPY --chown=node:node docker-entrypoint.sh ./docker-entrypoint.sh
 
 EXPOSE 3000
 USER node
-CMD ["node", "server.js"]
+CMD ["sh", "docker-entrypoint.sh"]
