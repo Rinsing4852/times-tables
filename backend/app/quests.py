@@ -10,7 +10,7 @@ from .config import local_date
 from .models import Fact, FactStat, TrainingQuest
 
 
-APP_VERSION = "0.9.0"
+APP_VERSION = "0.9.1"
 
 
 @dataclass(frozen=True)

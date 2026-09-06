@@ -60,7 +60,7 @@ export function AdminPanel({
     <section className="adminPanel">
       <div className="adminHeader">
         <div><h2>User management</h2><p className="quiet">Create profiles, reset passcodes, and manage local access.</p></div>
-        <span>{users.length} profiles</span>
+        <span>{users.length} {users.length === 1 ? "profile" : "profiles"}</span>
       </div>
       <div className="adminExportActions">
         <button type="button" className="secondaryButton" onClick={downloadBackup}>Download backup</button>

@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { CREATURE_STAGES, CREATURE_TYPES, creatureAsset, creatureSlug } from "../lib/creatures";
-import type { Creature, EvolutionEvent, TrainingQuest } from "../lib/types";
+import type { Creature, Dashboard, EvolutionEvent, TrainingQuest } from "../lib/types";
 import { Metric } from "./Metric";
 
 export function CreatureHome({
@@ -11,14 +11,38 @@ export function CreatureHome({
   onStartChallenge,
   quests,
   onStartQuest,
+  learningDashboard,
+  selectedTables,
 }: {
   creature: Creature | null;
   onStartPractice: (limit: number) => void;
   onStartChallenge: (limit: number) => void;
   quests: TrainingQuest[];
   onStartQuest: (quest: TrainingQuest) => void;
+  learningDashboard: Dashboard | null;
+  selectedTables: number[];
 }) {
+  const [openedAt] = useState(() => Date.now());
   if (!creature) return <section className="panel">Loading companion...</section>;
+
+  const selectedFacts = (learningDashboard?.cells || []).filter((cell) => selectedTables.includes(cell.a));
+  const dueFacts = selectedFacts.filter((cell) => cell.due_at && new Date(cell.due_at).getTime() <= openedAt);
+  const futureReviews = selectedFacts
+    .map((cell) => cell.due_at ? new Date(cell.due_at) : null)
+    .filter((date): date is Date => Boolean(date && date.getTime() > openedAt))
+    .sort((left, right) => left.getTime() - right.getTime());
+  const rememberedFacts = selectedFacts.filter((cell) => cell.learning_state === "secure").length;
+
+  function nextReviewLabel(date: Date | undefined) {
+    if (!date) return "No reviews are waiting yet. New facts will be scheduled as you practise.";
+    const today = new Date(openedAt);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(today.getDate() + 1);
+    const dateKey = date.toLocaleDateString("en-CA");
+    if (dateKey === today.toLocaleDateString("en-CA")) return "Your next memory review is later today.";
+    if (dateKey === tomorrow.toLocaleDateString("en-CA")) return "Your next memory review is tomorrow.";
+    return `Your next memory review is ${date.toLocaleDateString(undefined, { day: "numeric", month: "short" })}.`;
+  }
 
   return (
     <section className="creatureHome">
@@ -52,6 +76,20 @@ export function CreatureHome({
         <button type="button" onClick={() => onStartPractice(10)}>Training Session<span>10 questions</span></button>
         <button type="button" onClick={() => onStartChallenge(20)}>Challenge Round<span>20 questions</span></button>
       </div>
+
+      <section className={`panel memoryReview ${dueFacts.length > 0 ? "reviewReady" : ""}`}>
+        <div>
+          <p className="eyebrow">Memory review</p>
+          <h2>{dueFacts.length > 0 ? `${dueFacts.length} ${dueFacts.length === 1 ? "fact is" : "facts are"} ready` : "Your reviews are planned"}</h2>
+          <p>
+            {dueFacts.length > 0
+              ? "Revisit these facts now to help them stick."
+              : nextReviewLabel(futureReviews[0])}
+          </p>
+          {rememberedFacts > 0 && <span className="quiet">{rememberedFacts} selected-table {rememberedFacts === 1 ? "fact" : "facts"} remembered.</span>}
+        </div>
+        {dueFacts.length > 0 && <button type="button" onClick={() => onStartPractice(5)}>Review 5 facts</button>}
+      </section>
 
       <section className="panel questSection">
         <div className="sectionHeader">

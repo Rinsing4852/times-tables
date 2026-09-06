@@ -107,6 +107,10 @@ select {
 
 .focusShell .practiceSurface,
 .focusShell > .workspace > .panel {
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   min-height: 100dvh;
   border: 0;
   border-radius: 0;
@@ -206,6 +210,10 @@ h2 {
   padding: 12px;
 }
 
+.settingsMenu:not([open]) .settingsPanel {
+  display: none;
+}
+
 .settingsActions {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -230,6 +238,7 @@ h2 {
 .workspace {
   display: grid;
   gap: 16px;
+  min-width: 0;
 }
 
 .loginScreen {
@@ -309,6 +318,13 @@ h2 {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
+}
+
+.utilityBackButton {
+  width: fit-content;
+  background: #e7edf5;
+  color: var(--ink);
 }
 
 .tableGrid {
@@ -375,16 +391,18 @@ h2 {
 }
 
 .focusBackButton {
-  position: fixed;
+  position: absolute;
   top: 16px;
   right: 16px;
   z-index: 2;
-  min-height: 40px;
+  width: 46px;
+  min-height: 46px;
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.86);
   color: var(--muted);
   box-shadow: 0 8px 24px rgba(22, 35, 55, 0.1);
-  padding: 0 12px;
+  padding: 0;
+  font-size: 1.45rem;
 }
 
 .focusBackButton:hover {
@@ -434,6 +452,7 @@ h2 {
 }
 
 .practiceSetup {
+  position: relative;
   min-height: 100dvh;
   display: grid;
   align-content: center;
@@ -1229,6 +1248,24 @@ h2 {
   opacity: 0.9;
 }
 
+.memoryReview {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  border-left: 6px solid #7c8da3;
+}
+
+.memoryReview.reviewReady {
+  border-left-color: var(--blue);
+  background: #eef6ff;
+}
+
+.memoryReview h2,
+.memoryReview p {
+  margin-bottom: 6px;
+}
+
 .versionLine {
   grid-column: 1 / -1;
   margin: 0;
@@ -1481,6 +1518,9 @@ h2 {
 }
 
 .practiceSurface.compact {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   min-height: 280px;
 }
 
@@ -1502,7 +1542,7 @@ h2 {
 
 .answerRow {
   display: grid;
-  grid-template-columns: minmax(120px, 300px);
+  grid-template-columns: minmax(0, 300px);
   gap: 10px;
   justify-content: center;
   width: 100%;
@@ -1530,7 +1570,7 @@ h2 {
 .numberPad {
   width: min(440px, 100%);
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -1579,10 +1619,11 @@ h2 {
 }
 
 .challengeSetup {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  align-items: end;
+  width: min(520px, 100%);
+  display: grid;
+  gap: 18px;
+  justify-self: center;
+  text-align: center;
 }
 
 .challengeSetup label {
@@ -1590,6 +1631,27 @@ h2 {
   gap: 6px;
   color: var(--muted);
   font-weight: 800;
+}
+
+.challengeSetupPage {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.challengeSetupHeading p:last-child {
+  margin-bottom: 0;
+}
+
+.challengeSetup > button {
+  width: 100%;
+}
+
+.customQuestionCount {
+  text-align: left;
 }
 
 .progressLine,
@@ -1606,6 +1668,7 @@ h2 {
 .dashboard {
   display: grid;
   gap: 16px;
+  min-width: 0;
 }
 
 .dashboardTabs {
@@ -1648,6 +1711,7 @@ h2 {
 
 .metric strong {
   font-size: 1.8rem;
+  overflow-wrap: anywhere;
 }
 
 .dashboardControls {
@@ -1676,6 +1740,7 @@ h2 {
 
 .heatMap {
   display: grid;
+  grid-template-columns: 44px repeat(var(--heat-columns), minmax(42px, 1fr));
   gap: 2px;
   min-width: max-content;
 }
@@ -1799,6 +1864,24 @@ h2 {
 .parentStats {
   display: grid;
   gap: 14px;
+  min-width: 0;
+}
+
+.reviewSchedule {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f7f9fc;
+  padding: 12px;
+}
+
+.reviewSchedule span {
+  color: var(--muted);
+  font-weight: 800;
 }
 
 .tableStatsGrid {
@@ -1945,7 +2028,7 @@ h2 {
 @media (max-width: 520px) {
   .shell {
     padding: 10px;
-    overflow-x: hidden;
+    max-width: 100%;
   }
 
   .shell.focusShell {
@@ -1957,7 +2040,6 @@ h2 {
   }
 
   .profileForm,
-  .metricGrid,
   .answerRow,
   .homeActions,
   .cosmeticGrid,
@@ -1983,6 +2065,20 @@ h2 {
 
   .dashboardTabs {
     grid-template-columns: repeat(2, 1fr);
+  }
+
+  .metricGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .metric {
+    min-width: 0;
+    min-height: 78px;
+    padding: 10px;
+  }
+
+  .metric strong {
+    font-size: 1.35rem;
   }
 
   .tabs {
@@ -2018,6 +2114,11 @@ h2 {
     gap: 10px;
   }
 
+  .sectionHeader {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
   .topbar {
     padding: 12px 0;
     gap: 10px;
@@ -2029,14 +2130,28 @@ h2 {
   }
 
   .settingsPanel {
-    position: static;
+    position: fixed;
+    inset: 116px 10px auto 10px;
+    width: auto;
+    max-height: calc(100dvh - 126px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    margin-top: 0;
+    box-shadow: 0 20px 60px rgba(22, 35, 55, 0.28);
+  }
+
+  .memoryReview {
+    grid-template-columns: 1fr;
+  }
+
+  .memoryReview button {
     width: 100%;
-    max-height: none;
-    overflow: visible;
-    margin-top: 8px;
   }
 
   .questionText {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
     font-size: 3rem;
     min-height: clamp(120px, 20vh, 160px);
     padding: 18px;
@@ -2073,6 +2188,9 @@ h2 {
   }
 
   .answerRow {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
     gap: 8px;
   }
 
@@ -2082,6 +2200,8 @@ h2 {
   }
 
   .answerRow input {
+    width: 100%;
+    min-width: 0;
     min-height: 58px;
     font-size: 1.7rem;
   }
@@ -2089,6 +2209,8 @@ h2 {
   .numberPad {
     display: grid;
     width: 100%;
+    max-width: 100%;
+    min-width: 0;
     gap: 7px;
   }
 
@@ -2102,11 +2224,77 @@ h2 {
 
   .heatHeader,
   .heatCorner {
-    min-height: 36px;
+    min-height: 30px;
+    font-size: 0.72rem;
   }
 
   .heatCell {
-    min-height: 48px;
+    min-height: 30px;
+    border-width: 0;
+  }
+
+  .heatMapFrame {
+    width: 100%;
+    overflow-x: visible;
+  }
+
+  .heatMap {
+    width: 100%;
+    min-width: 0;
+    grid-template-columns: 30px repeat(var(--heat-columns), minmax(0, 1fr));
+    gap: 1px;
+  }
+
+  .heatLegend {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    overflow-x: visible;
+  }
+
+  .heatLegend span {
+    min-width: 0;
+    padding: 4px 2px;
+    font-size: 0.68rem;
+    overflow-wrap: anywhere;
+  }
+
+  .evolutionPath {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow-x: visible;
+  }
+
+  .evolutionStep {
+    min-width: 0;
+  }
+
+  .evolutionThumbnail {
+    width: min(104px, 100%);
+    aspect-ratio: 1;
+    height: auto;
+  }
+
+  .tableStatsGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow-x: visible;
+  }
+
+  .tableStat {
+    min-width: 0;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #f7f9fc;
+  }
+
+  .tableStat small {
+    overflow-wrap: anywhere;
+  }
+
+  .adminRowActions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .challengeSetupPage {
+    padding: 20px 14px;
   }
 
   .creatureCard {

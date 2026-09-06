@@ -8,6 +8,10 @@ function solve(prompt: string): string {
   return String(numbers[0] * numbers[1]);
 }
 
+function isPhoneProject(projectName: string) {
+  return projectName.startsWith("phone");
+}
+
 test.beforeEach(async ({ request }) => {
   const users = await request.get("/backend-api/users");
   if ((await users.json()).length === 0) {
@@ -35,7 +39,7 @@ test("keyboard submission is acknowledged and advances practice", async ({ page 
 });
 
 test("phone layouts stay within the viewport", async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name !== "phone", "Phone-only viewport assertion");
+  test.skip(!isPhoneProject(testInfo.project.name), "Phone-only viewport assertion");
   await page.goto("/");
   await page.getByRole("button", { name: /Test Parent/ }).click();
   await page.getByPlaceholder("Passcode").fill("246824");
@@ -96,7 +100,7 @@ test("heat map cells contain only the five-level colour data", async ({ page }, 
 });
 
 test("phone dashboard contains the heat map without widening the page", async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name !== "phone", "Phone-only dashboard assertion");
+  test.skip(!isPhoneProject(testInfo.project.name), "Phone-only dashboard assertion");
   await page.goto("/");
   await page.getByRole("button", { name: /Test Parent/ }).click();
   await page.getByPlaceholder("Passcode").fill("246824");
@@ -132,7 +136,8 @@ test("parent progress shows retained-learning measures", async ({ page }, testIn
   await page.getByRole("button", { name: "Dashboard", exact: true }).click();
   await page.getByRole("button", { name: "Progress", exact: true }).click();
 
-  await expect(page.getByRole("heading", { name: "Learning and retention" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Memory reviews" })).toBeVisible();
+  await expect(page.getByText("1 · 3 · 7 · 14 · 30 · 60 days")).toBeVisible();
   await expect(page.getByText("Ready to review", { exact: true })).toBeVisible();
   await expect(page.getByText("7-day review accuracy", { exact: true })).toBeVisible();
 });

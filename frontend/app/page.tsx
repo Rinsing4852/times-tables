@@ -81,6 +81,7 @@ export default function Home() {
   const [questionMode, setQuestionMode] = useState<QuestionMode>("mixed");
   const [status, setStatus] = useState("");
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
+  const [homeDashboard, setHomeDashboard] = useState<Dashboard | null>(null);
   const [dashboardUserId, setDashboardUserId] = useState<number | null>(null);
   const [practicePreset, setPracticePreset] = useState(10);
   const [challengePreset, setChallengePreset] = useState(20);
@@ -148,6 +149,7 @@ export default function Home() {
       setCreature(null);
       setQuests([]);
       setDashboard(null);
+      setHomeDashboard(null);
       setStatus("Your session expired. Please choose your profile again.");
     };
     window.addEventListener("recall-forge:auth-expired", handleExpiredSession);
@@ -177,6 +179,7 @@ export default function Home() {
     setCreature(null);
     setQuests([]);
     setDashboard(null);
+    setHomeDashboard(null);
     setDashboardUserId(null);
     setAdminUsers([]);
     setTab("home");
@@ -191,6 +194,15 @@ export default function Home() {
       return () => { cancelled = true; };
     }
   }, [activeUser, dashboardUserId, tab]);
+
+  useEffect(() => {
+    if (!activeUser || tab !== "home") return;
+    let cancelled = false;
+    api<Dashboard>(`/dashboard/${activeUser.id}`)
+      .then((data) => { if (!cancelled) setHomeDashboard(data); })
+      .catch((error) => { if (!cancelled) setStatus(error.message); });
+    return () => { cancelled = true; };
+  }, [activeUser, tab]);
 
   const loadAdminUsers = useCallback(async () => {
     if (!activeUser?.is_admin) return;
@@ -256,12 +268,15 @@ export default function Home() {
       setCreature(null);
       setQuests([]);
       setDashboard(null);
+      setHomeDashboard(null);
       setAdminUsers([]);
       return;
     }
     setActiveUser(currentUser);
     const updatedCreature = await api<Creature>(`/users/${currentUser.id}/creature`);
     setCreature(updatedCreature);
+    const updatedHomeDashboard = await api<Dashboard>(`/dashboard/${currentUser.id}`);
+    setHomeDashboard(updatedHomeDashboard);
     await loadQuests(currentUser.id);
     if (currentUser.is_admin) {
       const adminList = await api<User[]>(`/admin/${currentUser.id}/users`);
@@ -357,16 +372,16 @@ export default function Home() {
       </header>}
 
       <section className="workspace">
-        {!focusMode && <nav className="tabs" aria-label="Modes">
+        {!focusMode && tab === "home" && <nav className="tabs" aria-label="Modes">
           {(["home", "practice", "challenge"] as const).map((item) => (
             <button key={item} className={tab === item ? "active" : ""} aria-current={tab === item ? "page" : undefined} onClick={() => navigate(item)} type="button">
               {item[0].toUpperCase() + item.slice(1)}
             </button>
           ))}
         </nav>}
-        {!focusMode && <label className="modeSelect">
+        {!focusMode && tab === "home" && <label className="modeSelect">
           Mode
-          <select value={tab === "profile" || tab === "dashboard" ? "home" : tab} onChange={(event) => navigate(event.target.value as Mode)}>
+          <select value={tab} onChange={(event) => navigate(event.target.value as Mode)}>
             <option value="home">Home</option>
             <option value="practice">Practice</option>
             <option value="challenge">Challenge</option>
@@ -388,14 +403,14 @@ export default function Home() {
           />
         ) : (
           <>
-            {!focusMode && <details className="panel collapsiblePanel">
+            {tab === "home" && <details className="panel collapsiblePanel">
               <summary>Tables: {tables.join(", ")}</summary>
               <TableSelector selected={tables} locked={activeUser.required_tables || []} onChange={setTables} />
               {(activeUser.required_tables || []).length > 0 && (
                 <p className="quiet">Required by admin: {activeUser.required_tables.join(", ")}. These tables stay selected.</p>
               )}
             </details>}
-            {!focusMode && <div className="panel compactPanel">
+            {tab === "home" && <div className="panel compactPanel">
               <span className="fieldLabel">Question type</span>
               <div className="segmented modeSegment" aria-label="Question type">
                 {([
@@ -417,6 +432,8 @@ export default function Home() {
                 onStartChallenge={startChallengeRound}
                 quests={quests}
                 onStartQuest={startQuest}
+                learningDashboard={homeDashboard}
+                selectedTables={tables}
               />
             )}
             {tab === "practice" && (
@@ -464,13 +481,21 @@ export default function Home() {
                 onShowDashboard={() => navigate("dashboard")}
               />
             )}
-            {tab === "profile" && <CreatureProfile creature={creature} onSelectCosmetic={selectCosmetic} onUpdateCreature={updateCreature} />}
+            {tab === "profile" && (
+              <>
+                <button type="button" className="utilityBackButton" onClick={() => navigate("home")}>Back home</button>
+                <CreatureProfile creature={creature} onSelectCosmetic={selectCosmetic} onUpdateCreature={updateCreature} />
+              </>
+            )}
             {tab === "dashboard" && (
-              <DashboardView
-                dashboard={dashboard}
-                tables={tables}
-                profileName={users.find((user) => user.id === dashboardUserId)?.name || activeUser.name}
-              />
+              <>
+                <button type="button" className="utilityBackButton" onClick={() => navigate("home")}>Back home</button>
+                <DashboardView
+                  dashboard={dashboard}
+                  tables={tables}
+                  profileName={users.find((user) => user.id === dashboardUserId)?.name || activeUser.name}
+                />
+              </>
             )}
             {tab === "evolution" && pendingEvolution && (
               <EvolutionPage event={pendingEvolution} onContinue={continueAfterEvolution} />
@@ -710,7 +735,7 @@ function PracticeMode({
     return (
       <section className="practiceSetup panel">
         <button type="button" className="focusBackButton" onClick={onBackHome} aria-label="Back to home">
-          Home
+          <span aria-hidden="true">←</span>
         </button>
         <p className="eyebrow">Practice setup</p>
         <h2>Choose your training run</h2>
@@ -736,7 +761,7 @@ function PracticeMode({
   return (
     <section className="practiceSurface practiceSession">
       <button type="button" className="focusBackButton" onClick={backHome} aria-label="Back to home">
-        Home
+        <span aria-hidden="true">←</span>
       </button>
       <div className="progressLine">
         {completedCount + 1 <= questionLimit ? completedCount + 1 : questionLimit} of {questionLimit}
@@ -928,7 +953,7 @@ function QuestMode({
           {result.creature.evolution_from && result.creature.evolution_to && (
             <EvolutionPrompt creatureName={result.creature.creature_name} toStage={result.creature.evolution_to} />
           )}
-          <p>You practised {result.facts_practised.length} focused facts.</p>
+          <p>You practised {result.facts_practised.length} focused {result.facts_practised.length === 1 ? "fact" : "facts"}.</p>
           <p>
             You got {firstAttemptCorrectCount} right first time and fixed {secondTryCorrectCount} on your second try.
           </p>
@@ -954,7 +979,7 @@ function QuestMode({
   return (
     <section className="practiceSurface practiceSession">
       <button type="button" className="focusBackButton" onClick={backHome} aria-label="Back to home">
-        Home
+        <span aria-hidden="true">←</span>
       </button>
       <div className="practiceControls">
         <strong>{index + 1} / {questStart.questions.length}</strong>
@@ -1098,12 +1123,19 @@ function ChallengeMode({
   const current = questions[index];
 
   return (
-    <section className="panel">
-      <button type="button" className="focusBackButton" onClick={backHome} aria-label="Back to home">
-        Home
-      </button>
+    <section className={`panel ${questions.length === 0 && !result ? "challengeSetupPage" : ""}`}>
+      {!result && (
+        <button type="button" className="focusBackButton" onClick={backHome} aria-label="Back to home">
+          <span aria-hidden="true">←</span>
+        </button>
+      )}
       {questions.length === 0 && !result && (
         <div className="challengeSetup">
+          <div className="challengeSetupHeading">
+            <p className="eyebrow">Challenge setup</p>
+            <h2>Choose your challenge length</h2>
+            <p className="quiet">The timer stays hidden while you answer.</p>
+          </div>
           <div className="segmented" aria-label="Challenge length">
             {[10, 15, 20].map((limit) => (
               <button key={limit} type="button" className={count === limit ? "active" : ""} onClick={() => setCount(limit)}>
@@ -1111,8 +1143,8 @@ function ChallengeMode({
               </button>
             ))}
           </div>
-          <label>
-            Questions
+          <label className="customQuestionCount">
+            Custom questions
             <input
               type="number"
               min={1}

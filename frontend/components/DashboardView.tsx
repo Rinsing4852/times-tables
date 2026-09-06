@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { CSSProperties, useMemo, useState } from "react";
 import type { Dashboard, DashboardCell } from "../lib/types";
 import { Metric } from "./Metric";
 
@@ -41,7 +41,11 @@ export function DashboardView({ dashboard, tables, profileName }: { dashboard: D
           <button type="button" key={value} className={view === value ? "active" : ""} onClick={() => setView(value)}>{label}</button>
         ))}
       </div>
-      <div className="dashboardControls"><span className="quiet">Showing selected tables: {selectedTables.join(", ")}</span></div>
+      <div className="dashboardControls">
+        <span className="quiet">
+          {view === "progress" ? "Learning history across all tables" : `Showing selected tables: ${selectedTables.join(", ")}`}
+        </span>
+      </div>
       {view === "overview" && (
         <>
           <div className="metricGrid">
@@ -67,19 +71,20 @@ function ParentStats({ dashboard }: { dashboard: Dashboard }) {
   return (
     <section className="panel parentStats">
       <h2>Parent stats</h2>
-      <h3>Learning and retention</h3>
+      <h3>Memory reviews</h3>
       <div className="metricGrid retentionMetrics">
         <Metric label="Ready to review" value={`${retention.due}`} />
-        <Metric label="Overdue" value={`${retention.overdue}`} />
-        <Metric label="Secure facts" value={`${retention.state_counts.secure}`} />
-        <Metric label="Acquiring" value={`${retention.state_counts.acquiring}`} />
+        <Metric label="Due for a while" value={`${retention.overdue}`} />
+        <Metric label="Remembered facts" value={`${retention.state_counts.secure}`} />
+        <Metric label="Building confidence" value={`${retention.state_counts.acquiring}`} />
         <Metric label="7-day review accuracy" value={accuracyLabel(retention.review_accuracy_7_days.accuracy)} />
         <Metric label="30-day review accuracy" value={accuracyLabel(retention.review_accuracy_30_days.accuracy)} />
       </div>
       <p className="quiet">
-        Reviewing: {retention.state_counts.reviewing} · Unseen: {retention.state_counts.unseen} · Lapses after review: {retention.total_lapses}.
-        Second-try fixes do not count as independent retained recall.
+        In review: {retention.state_counts.reviewing} · Not practised yet: {retention.state_counts.unseen} · Facts returned to training: {retention.total_lapses}.
+        Second-try fixes are recorded separately from first-try recall.
       </p>
+      <p className="reviewSchedule"><strong>Review intervals</strong><span>1 · 3 · 7 · 14 · 30 · 60 days</span></p>
       <div className="split">
         <div><h3>Facts needing more exposure</h3><FactMiniList facts={dashboard.needing_exposure} /></div>
         <div><h3>Facts improving</h3><FactMiniList facts={dashboard.improving} /></div>
@@ -150,7 +155,7 @@ function HeatMap({
     <section className="panel">
       <div className="sectionHeader"><h2>{title}</h2></div>
       <div className="heatMapFrame">
-        <div className="heatMap" style={{ gridTemplateColumns: `44px repeat(${columns.length}, minmax(42px, 1fr))` }}>
+        <div className="heatMap" style={{ "--heat-columns": columns.length } as CSSProperties}>
           <div className="heatCorner" />
           {columns.map((table) => <div key={`${title}-col-${table}`} className="heatHeader heatColumnHeader">{table}</div>)}
           {rows.map((row) => (
