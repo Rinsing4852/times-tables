@@ -137,6 +137,7 @@ test("completion and results screens fit a phone", async ({ page }, testInfo) =>
 
   await page.getByRole("button", { name: /Quick Boost/ }).click();
   await page.getByRole("button", { name: "Start practice" }).click();
+  await expect(page.locator(".questionText")).not.toHaveText("Loading...");
   for (let index = 0; index < 5; index += 1) {
     await answerVisibleQuestion(page);
     if (index < 4) {
