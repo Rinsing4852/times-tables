@@ -1261,6 +1261,25 @@ h2 {
   background: #eef6ff;
 }
 
+.retentionHomeCard {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  border-left: 6px solid #7357a8;
+  background: #f7f4fb;
+}
+
+.retentionHomeCard.reviewReady {
+  border-left-color: #197f75;
+  background: #edf8f5;
+}
+
+.retentionHomeCard h2,
+.retentionHomeCard p {
+  margin-bottom: 6px;
+}
+
 .memoryReview h2,
 .memoryReview p {
   margin-bottom: 6px;
@@ -1673,8 +1692,167 @@ h2 {
 
 .dashboardTabs {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 8px;
+}
+
+.retentionDashboard {
+  display: grid;
+  gap: 16px;
+}
+
+.retentionSetup {
+  display: grid;
+  grid-template-columns: minmax(130px, 1fr) minmax(130px, 1fr) minmax(160px, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f6f8fb;
+  padding: 14px;
+}
+
+.retentionSetup > div,
+.retentionSetup label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.retentionSetup > div:not(.retentionTableChoice) > span {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  color: var(--ink);
+}
+
+.retentionSetup .retentionTableChoice {
+  grid-column: 1 / -1;
+}
+
+.retentionTableChoice .tableGrid {
+  margin-top: 2px;
+}
+
+.retentionNotice,
+.retentionNextStep {
+  margin: 0;
+  border-left: 5px solid #197f75;
+  border-radius: 6px;
+  background: #edf8f5;
+  padding: 14px;
+}
+
+.retentionHistory {
+  display: grid;
+  gap: 12px;
+}
+
+.retentionAssessmentCard {
+  display: grid;
+  gap: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+  padding: 14px;
+}
+
+.retentionAssessmentHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.retentionAssessmentHeader > div {
+  display: grid;
+  gap: 4px;
+}
+
+.retentionAssessmentHeader span {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.retentionTimeline {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.retentionTimeline > div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  border-top: 5px solid #b8c1ce;
+  background: #f2f5f8;
+  padding: 10px;
+}
+
+.retentionTimeline > div.complete {
+  border-top-color: var(--green);
+}
+
+.retentionTimeline > div.ready {
+  border-top-color: var(--amber);
+}
+
+.retentionTimeline span {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.retentionRoundList {
+  display: grid;
+  gap: 8px;
+}
+
+.retentionRound {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) repeat(3, minmax(95px, auto)) minmax(180px, 1.2fr);
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+.retentionRound span,
+.retentionRound small {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.retentionTestPage {
+  position: relative;
+  min-height: 100dvh;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.retentionQuestionSurface {
+  min-height: 100dvh;
+}
+
+.retentionLoading {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.retentionResults {
+  width: min(760px, 100%);
+  margin: 0 auto;
+  padding: clamp(24px, 5vw, 64px) clamp(14px, 4vw, 32px);
+}
+
+.retentionResults > p {
+  max-width: 680px;
 }
 
 .dashboardTabs button {
@@ -2011,8 +2189,18 @@ h2 {
 
   .adminCreate,
   .adminUserRow,
-  .progressGrid {
+  .progressGrid,
+  .retentionSetup {
     grid-template-columns: 1fr;
+  }
+
+  .retentionRound {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .retentionRound strong,
+  .retentionRound small {
+    grid-column: 1 / -1;
   }
 
   .profileForm button {
@@ -2140,12 +2328,22 @@ h2 {
     box-shadow: 0 20px 60px rgba(22, 35, 55, 0.28);
   }
 
-  .memoryReview {
+  .memoryReview,
+  .retentionHomeCard {
     grid-template-columns: 1fr;
   }
 
-  .memoryReview button {
+  .memoryReview button,
+  .retentionHomeCard button {
     width: 100%;
+  }
+
+  .retentionTimeline {
+    grid-template-columns: 1fr;
+  }
+
+  .retentionAssessmentHeader {
+    display: grid;
   }
 
   .questionText {

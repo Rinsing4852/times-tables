@@ -11,6 +11,7 @@ const loginSource = readFileSync(join(root, "components/ProfileLogin.tsx"), "utf
 const creatureSource = readFileSync(join(root, "components/CreatureExperience.tsx"), "utf8");
 const adminSource = readFileSync(join(root, "components/AdminPanel.tsx"), "utf8");
 const dashboardSource = readFileSync(join(root, "components/DashboardView.tsx"), "utf8");
+const retentionSource = readFileSync(join(root, "components/RetentionTest.tsx"), "utf8");
 const tableSelectorSource = readFileSync(join(root, "components/TableSelector.tsx"), "utf8");
 const layoutSource = readFileSync(join(root, "app/layout.tsx"), "utf8");
 const manifestSource = readFileSync(join(root, "app/manifest.ts"), "utf8");
@@ -120,4 +121,12 @@ test("temporary Mega Form has a visible unlock state", () => {
     assert.match(source, /viewBox="0 0 320 320"/);
     assert.match(source, /aria-label="[^"]+ Mega Form"/);
   }
+});
+
+test("long-term recall checks use a distraction-free fixed assessment surface", () => {
+  assert.match(pageSource, /<RetentionTest/);
+  assert.match(retentionSource, /retention-assessments/);
+  assert.match(retentionSource, /Recall check complete/);
+  assert.doesNotMatch(retentionSource, /setInterval/);
+  assert.match(dashboardSource, /Baseline, 4-week and 8-week checks/);
 });

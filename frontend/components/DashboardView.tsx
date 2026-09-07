@@ -1,8 +1,9 @@
 "use client";
 
 import { CSSProperties, useMemo, useState } from "react";
-import type { Dashboard, DashboardCell } from "../lib/types";
+import type { Dashboard, DashboardCell, QuestionMode, RetentionAssessment } from "../lib/types";
 import { Metric } from "./Metric";
+import { TableSelector } from "./TableSelector";
 
 const ALL_TABLES = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 
@@ -11,8 +12,20 @@ function formatMs(ms: number) {
   return `${(ms / 1000).toFixed(1)} s`;
 }
 
-export function DashboardView({ dashboard, tables, profileName }: { dashboard: Dashboard | null; tables: number[]; profileName: string }) {
-  const [view, setView] = useState<"overview" | "accuracy" | "speed" | "progress">("overview");
+export function DashboardView({
+  dashboard,
+  tables,
+  profileName,
+  canScheduleRetention,
+  onScheduleRetention,
+}: {
+  dashboard: Dashboard | null;
+  tables: number[];
+  profileName: string;
+  canScheduleRetention: boolean;
+  onScheduleRetention: (questionCount: number, questionMode: QuestionMode, testTables: number[]) => Promise<void>;
+}) {
+  const [view, setView] = useState<"overview" | "accuracy" | "speed" | "progress" | "retention">("overview");
   const selectedTables = useMemo(() => [...tables].sort((a, b) => a - b), [tables]);
   const selectedCells = useMemo(() => (dashboard?.cells || []).filter((cell) => selectedTables.includes(cell.a)), [dashboard, selectedTables]);
   const selectedTotals = useMemo(() => {
@@ -37,13 +50,13 @@ export function DashboardView({ dashboard, tables, profileName }: { dashboard: D
     <section className="dashboard">
       <div className="sectionHeader"><div><p className="eyebrow">Progress dashboard</p><h2>{profileName}&apos;s progress</h2></div></div>
       <div className="dashboardTabs" aria-label="Dashboard view">
-        {([['overview', 'Overview'], ['accuracy', 'Accuracy'], ['speed', 'Speed'], ['progress', 'Progress']] as const).map(([value, label]) => (
+        {([['overview', 'Overview'], ['accuracy', 'Accuracy'], ['speed', 'Speed'], ['progress', 'Progress'], ['retention', 'Recall tests']] as const).map(([value, label]) => (
           <button type="button" key={value} className={view === value ? "active" : ""} onClick={() => setView(value)}>{label}</button>
         ))}
       </div>
       <div className="dashboardControls">
         <span className="quiet">
-          {view === "progress" ? "Learning history across all tables" : `Showing selected tables: ${selectedTables.join(", ")}`}
+          {view === "progress" ? "Learning history across all tables" : view === "retention" ? "Baseline, 4-week and 8-week checks" : `Showing selected tables: ${selectedTables.join(", ")}`}
         </span>
       </div>
       {view === "overview" && (
@@ -61,6 +74,133 @@ export function DashboardView({ dashboard, tables, profileName }: { dashboard: D
       {view === "accuracy" && <HeatMap title="Accuracy" cells={selectedCells} rows={selectedTables} columns={ALL_TABLES} valueKey="accuracy" />}
       {view === "speed" && <HeatMap title="Speed" cells={selectedCells} rows={selectedTables} columns={ALL_TABLES} valueKey="average_time_ms" speed />}
       {view === "progress" && <ParentStats dashboard={dashboard} />}
+      {view === "retention" && (
+        <RetentionAssessments
+          assessments={dashboard.retention_assessments}
+          selectedTables={selectedTables}
+          profileName={profileName}
+          canSchedule={canScheduleRetention}
+          onSchedule={onScheduleRetention}
+        />
+      )}
+    </section>
+  );
+}
+
+function formatDate(value: string | null) {
+  if (!value) return "Not scheduled";
+  return new Date(value).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+}
+
+function RetentionAssessments({
+  assessments,
+  selectedTables,
+  profileName,
+  canSchedule,
+  onSchedule,
+}: {
+  assessments: RetentionAssessment[];
+  selectedTables: number[];
+  profileName: string;
+  canSchedule: boolean;
+  onSchedule: (questionCount: number, questionMode: QuestionMode, testTables: number[]) => Promise<void>;
+}) {
+  const [questionCount, setQuestionCount] = useState(20);
+  const [questionMode, setQuestionMode] = useState<QuestionMode>("multiply");
+  const [testTables, setTestTables] = useState(selectedTables);
+  const [message, setMessage] = useState("");
+  const [saving, setSaving] = useState(false);
+  const activeAssessment = assessments.find((item) => item.status !== "completed");
+
+  async function schedule() {
+    setSaving(true);
+    setMessage("Scheduling baseline...");
+    try {
+      await onSchedule(questionCount, questionMode, testTables);
+      setMessage(`Baseline ready for ${profileName}.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not schedule the recall check.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="panel retentionDashboard">
+      <div className="sectionHeader">
+        <div><p className="eyebrow">Long-term retention</p><h2>Recall checks</h2></div>
+      </div>
+      <p>
+        The same questions are given at baseline, after 4 weeks, and after 8 weeks. Each check records first-answer accuracy and recall speed without a visible timer.
+      </p>
+      {canSchedule && !activeAssessment && (
+        <div className="retentionSetup">
+          <div className="retentionTableChoice">
+            <strong>Tables to test</strong>
+            <TableSelector selected={testTables} onChange={setTestTables} />
+          </div>
+          <label>
+            Questions
+            <select value={questionCount} onChange={(event) => setQuestionCount(Number(event.target.value))}>
+              <option value={10}>10</option>
+              <option value={20}>20</option>
+              <option value={30}>30</option>
+            </select>
+          </label>
+          <label>
+            Question type
+            <select value={questionMode} onChange={(event) => setQuestionMode(event.target.value as QuestionMode)}>
+              <option value="multiply">Multiplication</option>
+              <option value="division">Division</option>
+              <option value="mixed">Mixed</option>
+            </select>
+          </label>
+          <button type="button" onClick={schedule} disabled={saving}>{saving ? "Scheduling..." : "Schedule baseline"}</button>
+        </div>
+      )}
+      {activeAssessment && <p className="retentionNotice"><strong>{activeAssessment.next_round_label}:</strong> {activeAssessment.can_start ? "ready on the learner home screen" : `planned for ${formatDate(activeAssessment.next_due_at)}`}.</p>}
+      {message && <p className="feedback" role="status">{message}</p>}
+      {assessments.length === 0 ? (
+        <p className="quiet">No long-term recall check has been scheduled yet.</p>
+      ) : (
+        <div className="retentionHistory">
+          {assessments.map((assessment) => (
+            <article className="retentionAssessmentCard" key={assessment.assessment_id}>
+              <div className="retentionAssessmentHeader">
+                <div><strong>Tables {assessment.selected_tables.join(", ")}</strong><span>{assessment.question_count} questions · {assessment.question_mode}</span></div>
+                <span>{assessment.status === "completed" ? "Complete" : "In progress"}</span>
+              </div>
+              <div className="retentionTimeline" aria-label="Recall-check schedule">
+                {([
+                  ["baseline", "Baseline", assessment.baseline_completed_at],
+                  ["week4", "4 weeks", assessment.week4_due_at],
+                  ["week8", "8 weeks", assessment.week8_due_at],
+                ] as const).map(([key, label, date]) => {
+                  const round = assessment.rounds.find((item) => item.round_key === key);
+                  return <div key={key} className={round ? "complete" : assessment.next_round_key === key && assessment.can_start ? "ready" : ""}><strong>{label}</strong><span>{round ? formatDate(round.completed_at) : key === "baseline" ? "Ready" : formatDate(date)}</span></div>;
+                })}
+              </div>
+              {assessment.rounds.length > 0 && (
+                <div className="retentionRoundList">
+                  {assessment.rounds.map((round) => (
+                    <div className="retentionRound" key={round.round_id}>
+                      <strong>{round.label}</strong>
+                      <span>{Math.round(round.accuracy * 100)}% accuracy</span>
+                      <span>{formatMs(round.average_time_ms)} average</span>
+                      <span>{formatMs(round.median_time_ms)} median</span>
+                      <small>
+                        {round.accuracy_change === null
+                          ? "Starting point"
+                          : `${round.accuracy_change >= 0 ? "+" : ""}${Math.round(round.accuracy_change * 100)} percentage points · ${round.average_time_change_ms !== null && round.average_time_change_ms < 0 ? `${formatMs(Math.abs(round.average_time_change_ms))} faster` : `${formatMs(round.average_time_change_ms || 0)} slower`}`}
+                      </small>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </article>
+          ))}
+        </div>
+      )}
     </section>
   );
 }

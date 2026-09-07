@@ -110,6 +110,7 @@ export type Dashboard = {
     review_accuracy_30_days: { attempts: number; correct: number; accuracy: number | null };
     total_lapses: number;
   };
+  retention_assessments: RetentionAssessment[];
 };
 
 export type ResultQuestion = {
@@ -143,7 +144,52 @@ export type ChallengeResult = {
   };
 };
 
-export type Mode = "home" | "practice" | "quest" | "challenge" | "profile" | "dashboard" | "evolution";
+export type RetentionRoundSummary = {
+  round_id: number;
+  round_key: "baseline" | "week4" | "week8";
+  label: string;
+  status: string;
+  due_at: string | null;
+  completed_at: string | null;
+  correct_count: number;
+  question_count: number;
+  accuracy: number;
+  total_time_ms: number;
+  average_time_ms: number;
+  median_time_ms: number;
+  accuracy_change: number | null;
+  average_time_change_ms: number | null;
+  median_time_change_ms: number | null;
+};
+
+export type RetentionAssessment = {
+  assessment_id: number;
+  user_id: number;
+  selected_tables: number[];
+  question_mode: QuestionMode;
+  question_count: number;
+  status: string;
+  created_at: string;
+  baseline_completed_at: string | null;
+  week4_due_at: string | null;
+  week8_due_at: string | null;
+  completed_at: string | null;
+  next_round_key: "baseline" | "week4" | "week8" | null;
+  next_round_label: string | null;
+  next_due_at: string | null;
+  can_start: boolean;
+  active_round_id: number | null;
+  rounds: RetentionRoundSummary[];
+};
+
+export type RetentionTestStart = {
+  assessment: RetentionAssessment;
+  round_id: number;
+  round_key: "baseline" | "week4" | "week8";
+  questions: Question[];
+};
+
+export type Mode = "home" | "practice" | "quest" | "challenge" | "retention" | "profile" | "dashboard" | "evolution";
 export type EvolutionEvent = { creatureName: string; creatureType: string; fromStage: string; toStage: string };
 
 export type PracticeSummary = {

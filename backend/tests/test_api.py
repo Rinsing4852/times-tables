@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -8,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 from app.adaptive import question_for_fact
 from app.database import Base, get_db
 from app.main import _login_failures, app
-from app.models import Fact, LearningSession, LearningSessionQuestion, User
+from app.models import Fact, LearningSession, LearningSessionQuestion, RetentionAssessment, RetentionAssessmentQuestion, User
 from app.seed import seed_facts
 
 
@@ -308,6 +309,128 @@ def test_challenge_avoids_repeating_facts_while_pool_is_available(api) -> None:
     ).json()
 
     assert len({question["fact_id"] for question in started["questions"]}) == 10
+
+
+def test_retention_check_repeats_the_fixed_test_at_four_and_eight_weeks(api) -> None:
+    client, testing_session = api
+    admin = create_admin(client)
+    login(client, admin["id"], "246824")
+
+    created_response = client.post(
+        "/retention-assessments",
+        json={"user_id": admin["id"], "tables": [4], "question_count": 5, "question_mode": "multiply"},
+    )
+    assert created_response.status_code == 200
+    created = created_response.json()
+    assert created["next_round_key"] == "baseline"
+    assert created["can_start"] is True
+
+    baseline = client.post(f"/retention-assessments/{created['assessment_id']}/start").json()
+    baseline_prompts = [question["prompt"] for question in baseline["questions"]]
+    baseline_answers = []
+    with testing_session() as db:
+        for index, question in enumerate(baseline["questions"]):
+            record = db.get(RetentionAssessmentQuestion, question["question_id"])
+            fact = db.get(Fact, record.fact_id)
+            _, answer = question_for_fact(fact, record.question_type)
+            baseline_answers.append(
+                {
+                    "question_id": question["question_id"],
+                    "answer": str(answer) if index < 3 else "9999",
+                    "response_time_ms": 3000,
+                }
+            )
+    baseline_result = client.post(
+        f"/retention-assessments/{created['assessment_id']}/submit",
+        json={"round_id": baseline["round_id"], "answers": baseline_answers},
+    )
+    assert baseline_result.status_code == 200
+    baseline_summary = baseline_result.json()["assessment"]
+    assert baseline_summary["status"] == "week4_pending"
+    assert baseline_summary["rounds"][0]["accuracy"] == 0.6
+    assert baseline_summary["rounds"][0]["average_time_ms"] == 3000
+    assert baseline_summary["rounds"][0]["median_time_ms"] == 3000
+    baseline_completed_at = datetime.fromisoformat(baseline_summary["baseline_completed_at"])
+    assert datetime.fromisoformat(baseline_summary["week4_due_at"]) - baseline_completed_at == timedelta(days=28)
+    assert datetime.fromisoformat(baseline_summary["week8_due_at"]) - baseline_completed_at == timedelta(days=56)
+    assert client.post(f"/retention-assessments/{created['assessment_id']}/start").status_code == 409
+
+    with testing_session() as db:
+        assessment = db.get(RetentionAssessment, created["assessment_id"])
+        assessment.week4_due_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+        db.commit()
+
+    week4 = client.post(f"/retention-assessments/{created['assessment_id']}/start").json()
+    assert [question["prompt"] for question in week4["questions"]] == baseline_prompts
+    week4_answers = [
+        {
+            "question_id": question["question_id"],
+            "answer": baseline_answers[index]["answer"] if index < 3 else ("9999" if index == 4 else str(4 * (index + 2))),
+            "response_time_ms": 2000,
+        }
+        for index, question in enumerate(week4["questions"])
+    ]
+    # Resolve the fourth answer from the stored fixed question so the round improves to four correct.
+    with testing_session() as db:
+        record = db.get(RetentionAssessmentQuestion, week4["questions"][3]["question_id"])
+        fact = db.get(Fact, record.fact_id)
+        _, answer = question_for_fact(fact, record.question_type)
+        week4_answers[3]["answer"] = str(answer)
+    week4_result = client.post(
+        f"/retention-assessments/{created['assessment_id']}/submit",
+        json={"round_id": week4["round_id"], "answers": week4_answers},
+    ).json()["assessment"]
+    week4_summary = next(item for item in week4_result["rounds"] if item["round_key"] == "week4")
+    assert week4_summary["accuracy"] == 0.8
+    assert week4_summary["accuracy_change"] == 0.2
+    assert week4_summary["average_time_change_ms"] == -1000
+
+    with testing_session() as db:
+        assessment = db.get(RetentionAssessment, created["assessment_id"])
+        assessment.week8_due_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+        db.commit()
+    week8 = client.post(f"/retention-assessments/{created['assessment_id']}/start").json()
+    assert [question["prompt"] for question in week8["questions"]] == baseline_prompts
+
+    week8_answers = []
+    with testing_session() as db:
+        for question in week8["questions"]:
+            record = db.get(RetentionAssessmentQuestion, question["question_id"])
+            fact = db.get(Fact, record.fact_id)
+            _, answer = question_for_fact(fact, record.question_type)
+            week8_answers.append(
+                {"question_id": question["question_id"], "answer": str(answer), "response_time_ms": 1000}
+            )
+    week8_result = client.post(
+        f"/retention-assessments/{created['assessment_id']}/submit",
+        json={"round_id": week8["round_id"], "answers": week8_answers},
+    ).json()["assessment"]
+    assert week8_result["status"] == "completed"
+    week8_summary = next(item for item in week8_result["rounds"] if item["round_key"] == "week8")
+    assert week8_summary["accuracy"] == 1
+    assert week8_summary["accuracy_change"] == 0.4
+    assert week8_summary["average_time_change_ms"] == -2000
+
+    dashboard = client.get(f"/dashboard/{admin['id']}").json()
+    assert dashboard["retention_assessments"][0]["status"] == "completed"
+    assert client.post(f"/admin/{admin['id']}/users/{admin['id']}/reset-progress").status_code == 200
+    assert client.get(f"/users/{admin['id']}/retention-assessments").json()["assessments"] == []
+
+
+def test_only_an_admin_can_schedule_a_retention_check(api) -> None:
+    client, _ = api
+    admin = create_admin(client)
+    login(client, admin["id"], "246824")
+    child = client.post(f"/admin/{admin['id']}/users", json={"name": "Learner"}).json()
+    client.post("/auth/logout")
+    login(client, child["id"])
+
+    response = client.post(
+        "/retention-assessments",
+        json={"user_id": child["id"], "tables": [4], "question_count": 10, "question_mode": "multiply"},
+    )
+    assert response.status_code == 403
+    assert client.get(f"/users/{admin['id']}/retention-assessments").status_code == 403
 
 
 def test_login_is_rate_limited_after_repeated_failures(api) -> None:

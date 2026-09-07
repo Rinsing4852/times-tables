@@ -214,3 +214,86 @@ class LearningSessionQuestion(Base):
 
     session: Mapped["LearningSession"] = relationship(back_populates="questions")
     fact: Mapped["Fact"] = relationship()
+
+
+class RetentionAssessment(Base):
+    __tablename__ = "retention_assessments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    selected_tables: Mapped[str] = mapped_column(String(64), nullable=False)
+    question_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="multiply")
+    question_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="baseline_ready")
+    baseline_completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    week4_due_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    week8_due_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+    questions: Mapped[list["RetentionAssessmentQuestion"]] = relationship(
+        back_populates="assessment", cascade="all, delete-orphan", order_by="RetentionAssessmentQuestion.position"
+    )
+    rounds: Mapped[list["RetentionAssessmentRound"]] = relationship(
+        back_populates="assessment", cascade="all, delete-orphan"
+    )
+
+
+class RetentionAssessmentQuestion(Base):
+    __tablename__ = "retention_assessment_questions"
+    __table_args__ = (UniqueConstraint("assessment_id", "position", name="uq_retention_assessment_position"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    assessment_id: Mapped[int] = mapped_column(
+        ForeignKey("retention_assessments.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    fact_id: Mapped[int] = mapped_column(ForeignKey("facts.id"), nullable=False)
+    question_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    prompt: Mapped[str] = mapped_column(String(80), nullable=False)
+
+    assessment: Mapped["RetentionAssessment"] = relationship(back_populates="questions")
+    fact: Mapped["Fact"] = relationship()
+
+
+class RetentionAssessmentRound(Base):
+    __tablename__ = "retention_assessment_rounds"
+    __table_args__ = (UniqueConstraint("assessment_id", "round_key", name="uq_retention_assessment_round"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    assessment_id: Mapped[int] = mapped_column(
+        ForeignKey("retention_assessments.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    round_key: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
+    due_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    total_time_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    correct_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    assessment: Mapped["RetentionAssessment"] = relationship(back_populates="rounds")
+    attempts: Mapped[list["RetentionAssessmentAttempt"]] = relationship(
+        back_populates="round", cascade="all, delete-orphan"
+    )
+
+
+class RetentionAssessmentAttempt(Base):
+    __tablename__ = "retention_assessment_attempts"
+    __table_args__ = (UniqueConstraint("round_id", "question_id", name="uq_retention_round_question"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    round_id: Mapped[int] = mapped_column(
+        ForeignKey("retention_assessment_rounds.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    question_id: Mapped[int] = mapped_column(
+        ForeignKey("retention_assessment_questions.id", ondelete="CASCADE"), nullable=False
+    )
+    answer_given: Mapped[str] = mapped_column(String(32), nullable=False)
+    correct_answer: Mapped[int] = mapped_column(Integer, nullable=False)
+    is_correct: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    response_time_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+    round: Mapped["RetentionAssessmentRound"] = relationship(back_populates="attempts")
+    question: Mapped["RetentionAssessmentQuestion"] = relationship()

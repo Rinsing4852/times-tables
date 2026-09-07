@@ -21,7 +21,8 @@ from fastapi.responses import Response
 from starlette.background import BackgroundTask
 from starlette.responses import FileResponse
 from sqlalchemy import desc, func, select, text
-from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session, selectinload
 
 from .adaptive import (
     as_aware_utc,
@@ -39,6 +40,7 @@ from .creatures import (
     cosmetic_list,
     creature_payload,
     decayed_energy,
+    energy_gain_for_questions,
 )
 from .config import local_date
 from .database import Base, SessionLocal, engine, get_db
@@ -52,6 +54,10 @@ from .models import (
     LearningSession,
     LearningSessionQuestion,
     QuestionAttempt,
+    RetentionAssessment,
+    RetentionAssessmentAttempt,
+    RetentionAssessmentQuestion,
+    RetentionAssessmentRound,
     User,
 )
 from .models import TrainingQuest
@@ -65,6 +71,7 @@ from .learning import (
 from .profiles import clean_tables, effective_tables, parse_required_tables, reset_user_progress, user_payload
 from .quests import APP_VERSION, ensure_available_quests, quest_payload, quest_questions
 from .reports import evaluation_csv, retention_summary
+from .retention import assessment_payload, build_question_specs
 from .scheduler import choose_practice_fact, learning_state, review_is_due
 from .schemas import (
     ChallengeStart,
@@ -76,6 +83,8 @@ from .schemas import (
     PracticeQuestionRequest,
     PracticeStart,
     RequiredTablesUpdate,
+    RetentionAssessmentCreate,
+    RetentionAssessmentSubmit,
     TablesRequest,
     UserAdminUpdate,
     UserCreate,
@@ -208,6 +217,25 @@ def get_learning_session(db: Session, session_id: str, current_user: User) -> Le
         raise HTTPException(status_code=404, detail="Learning session not found")
     authorize_profile(current_user, learning_session.user_id)
     return learning_session
+
+
+def get_retention_assessment(db: Session, assessment_id: int, current_user: User) -> RetentionAssessment:
+    assessment = db.get(RetentionAssessment, assessment_id)
+    if not assessment:
+        raise HTTPException(status_code=404, detail="Retention check not found")
+    authorize_profile(current_user, assessment.user_id)
+    return assessment
+
+
+def retention_assessments_for_user(db: Session, user_id: int) -> list[RetentionAssessment]:
+    return list(
+        db.scalars(
+            select(RetentionAssessment)
+            .where(RetentionAssessment.user_id == user_id)
+            .options(selectinload(RetentionAssessment.rounds).selectinload(RetentionAssessmentRound.attempts))
+            .order_by(desc(RetentionAssessment.created_at), desc(RetentionAssessment.id))
+        ).all()
+    )
 
 
 def learning_question_payload(question: LearningSessionQuestion) -> dict:
@@ -974,6 +1002,206 @@ def submit_challenge(payload: ChallengeSubmit, db: Session = Depends(get_db), cu
     }
 
 
+@app.get("/users/{user_id}/retention-assessments")
+def list_retention_assessments(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(authenticated_user),
+) -> dict:
+    authorize_profile(current_user, user_id)
+    get_user(db, user_id)
+    return {"assessments": [assessment_payload(item) for item in retention_assessments_for_user(db, user_id)]}
+
+
+@app.post("/retention-assessments")
+def create_retention_assessment(
+    payload: RetentionAssessmentCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(authenticated_user),
+) -> dict:
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin login required")
+    authorize_profile(current_user, payload.user_id)
+    user = get_user(db, payload.user_id)
+    existing = db.scalar(
+        select(RetentionAssessment).where(
+            RetentionAssessment.user_id == payload.user_id,
+            RetentionAssessment.status != "completed",
+        )
+    )
+    if existing:
+        raise HTTPException(status_code=409, detail="This profile already has an active long-term retention check")
+
+    tables = effective_tables(user, payload.tables)
+    facts = facts_for_tables(db, tables)
+    assessment = RetentionAssessment(
+        user_id=user.id,
+        selected_tables=",".join(str(table) for table in tables),
+        question_mode=payload.question_mode,
+        question_count=payload.question_count,
+    )
+    db.add(assessment)
+    db.flush()
+    for position, (fact, question_type, prompt) in enumerate(
+        build_question_specs(facts, payload.question_count, payload.question_mode)
+    ):
+        assessment.questions.append(
+            RetentionAssessmentQuestion(
+                position=position,
+                fact_id=fact.id,
+                question_type=question_type,
+                prompt=prompt,
+            )
+        )
+    try:
+        db.commit()
+    except IntegrityError as error:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="This profile already has an active long-term retention check") from error
+    db.refresh(assessment)
+    return assessment_payload(assessment)
+
+
+@app.post("/retention-assessments/{assessment_id}/start")
+def start_retention_assessment(
+    assessment_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(authenticated_user),
+) -> dict:
+    assessment = get_retention_assessment(db, assessment_id, current_user)
+    active_round = next((item for item in assessment.rounds if item.status == "active"), None)
+    if active_round:
+        round_record = active_round
+    else:
+        round_key_by_status = {
+            "baseline_ready": "baseline",
+            "week4_pending": "week4",
+            "week8_pending": "week8",
+        }
+        round_key = round_key_by_status.get(assessment.status)
+        if not round_key:
+            raise HTTPException(status_code=409, detail="This retention check has no round ready to start")
+        due_at = None
+        if round_key == "week4":
+            due_at = assessment.week4_due_at
+        elif round_key == "week8":
+            due_at = assessment.week8_due_at
+        if due_at and as_aware_utc(due_at) > datetime.now(timezone.utc):
+            raise HTTPException(status_code=409, detail=f"The {round_key} retention check is not due yet")
+        round_record = RetentionAssessmentRound(
+            assessment_id=assessment.id,
+            round_key=round_key,
+            due_at=due_at,
+        )
+        assessment.rounds.append(round_record)
+        assessment.status = f"{round_key}_active"
+        db.commit()
+        db.refresh(round_record)
+
+    questions = sorted(assessment.questions, key=lambda item: item.position)
+    return {
+        "assessment": assessment_payload(assessment),
+        "round_id": round_record.id,
+        "round_key": round_record.round_key,
+        "questions": [
+            {
+                "question_id": question.id,
+                "fact_id": question.fact_id,
+                "question_type": question.question_type,
+                "prompt": question.prompt,
+            }
+            for question in questions
+        ],
+    }
+
+
+@app.post("/retention-assessments/{assessment_id}/submit")
+def submit_retention_assessment(
+    assessment_id: int,
+    payload: RetentionAssessmentSubmit,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(authenticated_user),
+) -> dict:
+    assessment = get_retention_assessment(db, assessment_id, current_user)
+    round_record = db.get(RetentionAssessmentRound, payload.round_id)
+    if not round_record or round_record.assessment_id != assessment.id:
+        raise HTTPException(status_code=400, detail="Retention-check round does not match this assessment")
+    if round_record.status != "active":
+        raise HTTPException(status_code=409, detail="This retention-check round is not active")
+
+    questions = sorted(assessment.questions, key=lambda item: item.position)
+    if len(payload.answers) != assessment.question_count or [item.question_id for item in payload.answers] != [
+        item.id for item in questions
+    ]:
+        raise HTTPException(status_code=400, detail="Retention-check answers do not match the issued questions")
+
+    now = datetime.now(timezone.utc)
+    correct_count = 0
+    total_time_ms = 0
+    recent_by_fact_id = recent_attempts_by_fact(db, assessment.user_id)
+    for answer, question in zip(payload.answers, questions):
+        fact = db.get(Fact, question.fact_id)
+        if not fact:
+            raise HTTPException(status_code=404, detail="Fact not found")
+        _, correct_answer = question_for_fact(fact, question.question_type)
+        is_correct = normalize_answer(answer.answer) == correct_answer
+        correct_count += int(is_correct)
+        total_time_ms += answer.response_time_ms
+        round_record.attempts.append(
+            RetentionAssessmentAttempt(
+                question_id=question.id,
+                answer_given=answer.answer,
+                correct_answer=correct_answer,
+                is_correct=is_correct,
+                response_time_ms=answer.response_time_ms,
+            )
+        )
+        stat = get_or_create_stat(db, assessment.user_id, fact.id)
+        state_before = learning_state(stat)
+        was_due_review = review_is_due(stat, now)
+        db.add(
+            QuestionAttempt(
+                user_id=assessment.user_id,
+                fact_id=fact.id,
+                question_type=question.question_type,
+                prompt=question.prompt,
+                answer_given=answer.answer,
+                correct_answer=correct_answer,
+                is_correct=is_correct,
+                attempt_number=1,
+                response_time_ms=answer.response_time_ms,
+                mode="retention",
+                was_due_review=was_due_review,
+                learning_state_before=state_before,
+            )
+        )
+        record_stat(stat, is_correct, 1, answer.response_time_ms, recent_by_fact_id.get(fact.id, []), now)
+
+    round_record.status = "completed"
+    round_record.completed_at = now
+    round_record.correct_count = correct_count
+    round_record.total_time_ms = total_time_ms
+    if round_record.round_key == "baseline":
+        assessment.baseline_completed_at = now
+        assessment.week4_due_at = now + timedelta(days=28)
+        assessment.week8_due_at = now + timedelta(days=56)
+        assessment.status = "week4_pending"
+    elif round_record.round_key == "week4":
+        assessment.status = "week8_pending"
+    else:
+        assessment.status = "completed"
+        assessment.completed_at = now
+
+    user = get_user(db, assessment.user_id)
+    user.energy = min(100, decayed_energy(user, now) + energy_gain_for_questions(assessment.question_count))
+    user.total_questions_answered = (user.total_questions_answered or 0) + assessment.question_count
+    user.total_sessions_completed = (user.total_sessions_completed or 0) + 1
+    user.last_practised_at = now
+    db.commit()
+    db.refresh(assessment)
+    return {"assessment": assessment_payload(assessment), "completed_round_key": round_record.round_key}
+
+
 @app.get("/dashboard/{user_id}")
 def dashboard(user_id: int, db: Session = Depends(get_db), current_user: User = Depends(authenticated_user)) -> dict:
     authorize_profile(current_user, user_id)
@@ -1131,4 +1359,7 @@ def dashboard(user_id: int, db: Session = Depends(get_db), current_user: User = 
         "recent_history": recent_history,
         "progress_over_time": progress_over_time,
         "retention": retention_summary(facts, stats_by_fact_id, due_review_attempts),
+        "retention_assessments": [
+            assessment_payload(item) for item in retention_assessments_for_user(db, user_id)[:5]
+        ],
     }

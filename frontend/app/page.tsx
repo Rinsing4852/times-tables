@@ -7,6 +7,7 @@ import { DashboardView } from "../components/DashboardView";
 import { Metric } from "../components/Metric";
 import { NumberPad } from "../components/NumberPad";
 import { ProfileLogin } from "../components/ProfileLogin";
+import { RetentionTest } from "../components/RetentionTest";
 import { TableSelector } from "../components/TableSelector";
 import { api } from "../lib/api";
 import type {
@@ -22,6 +23,7 @@ import type {
   QuestionMode,
   QuestCompleteResult,
   QuestStart,
+  RetentionAssessment,
   TrainingQuest,
   User,
 } from "../lib/types";
@@ -90,8 +92,9 @@ export default function Home() {
   const [appVersion, setAppVersion] = useState("");
   const [adminUsers, setAdminUsers] = useState<User[]>([]);
   const [pendingEvolution, setPendingEvolution] = useState<EvolutionEvent | null>(null);
+  const [activeRetention, setActiveRetention] = useState<RetentionAssessment | null>(null);
   const [postEvolutionTab, setPostEvolutionTab] = useState<Mode>("home");
-  const focusMode = tab === "practice" || tab === "quest" || tab === "challenge" || tab === "evolution";
+  const focusMode = tab === "practice" || tab === "quest" || tab === "challenge" || tab === "retention" || tab === "evolution";
 
   function queueEvolution(updatedCreature: Creature | null) {
     if (!updatedCreature?.evolution_from || !updatedCreature.evolution_to) return;
@@ -150,6 +153,7 @@ export default function Home() {
       setQuests([]);
       setDashboard(null);
       setHomeDashboard(null);
+      setActiveRetention(null);
       setStatus("Your session expired. Please choose your profile again.");
     };
     window.addEventListener("recall-forge:auth-expired", handleExpiredSession);
@@ -182,6 +186,7 @@ export default function Home() {
     setHomeDashboard(null);
     setDashboardUserId(null);
     setAdminUsers([]);
+    setActiveRetention(null);
     setTab("home");
   }
 
@@ -318,6 +323,30 @@ export default function Home() {
     navigate("challenge");
   }
 
+  function startRetentionCheck(assessment: RetentionAssessment) {
+    setActiveRetention(assessment);
+    navigate("retention");
+  }
+
+  async function scheduleRetentionCheck(questionCount: number, mode: QuestionMode, testTables: number[]) {
+    if (!activeUser?.is_admin || !dashboardUserId) return;
+    await api<RetentionAssessment>("/retention-assessments", {
+      method: "POST",
+      body: JSON.stringify({ user_id: dashboardUserId, tables: testTables, question_count: questionCount, question_mode: mode }),
+    });
+    const updated = await api<Dashboard>(`/dashboard/${dashboardUserId}`);
+    setDashboard(updated);
+    if (dashboardUserId === activeUser.id) setHomeDashboard(updated);
+  }
+
+  async function retentionCompleted(assessment: RetentionAssessment) {
+    setActiveRetention(assessment);
+    if (!activeUser) return;
+    const updatedHome = await api<Dashboard>(`/dashboard/${activeUser.id}`);
+    setHomeDashboard(updatedHome);
+    if (dashboardUserId === activeUser.id) setDashboard(updatedHome);
+  }
+
   async function startQuest(quest: TrainingQuest) {
     if (!activeUser) return;
     const data = await api<QuestStart>(`/users/${activeUser.id}/quests/${quest.quest_id}/start`, { method: "POST" });
@@ -434,6 +463,7 @@ export default function Home() {
                 onStartQuest={startQuest}
                 learningDashboard={homeDashboard}
                 selectedTables={tables}
+                onStartRetention={startRetentionCheck}
               />
             )}
             {tab === "practice" && (
@@ -481,6 +511,17 @@ export default function Home() {
                 onShowDashboard={() => navigate("dashboard")}
               />
             )}
+            {tab === "retention" && activeRetention && (
+              <RetentionTest
+                assessment={activeRetention}
+                onBackHome={() => navigate("home")}
+                onComplete={retentionCompleted}
+                onShowDashboard={() => {
+                  setDashboardUserId(activeUser.id);
+                  navigate("dashboard");
+                }}
+              />
+            )}
             {tab === "profile" && (
               <>
                 <button type="button" className="utilityBackButton" onClick={() => navigate("home")}>Back home</button>
@@ -494,6 +535,8 @@ export default function Home() {
                   dashboard={dashboard}
                   tables={tables}
                   profileName={users.find((user) => user.id === dashboardUserId)?.name || activeUser.name}
+                  canScheduleRetention={activeUser.is_admin}
+                  onScheduleRetention={scheduleRetentionCheck}
                 />
               </>
             )}

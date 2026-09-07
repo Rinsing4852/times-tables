@@ -43,5 +43,11 @@ def test_migrations_upgrade_legacy_schema_and_are_repeatable(tmp_path) -> None:
     }.issubset(stat_columns)
     attempt_columns = {column["name"] for column in inspector.get_columns("question_attempts")}
     assert {"was_due_review", "learning_state_before"}.issubset(attempt_columns)
-    assert versions == [1, 2, 3, 4]
+    assert {
+        "retention_assessments",
+        "retention_assessment_questions",
+        "retention_assessment_rounds",
+        "retention_assessment_attempts",
+    }.issubset(set(inspector.get_table_names()))
+    assert versions == [1, 2, 3, 4, 5, 6]
     assert is_admin == 1

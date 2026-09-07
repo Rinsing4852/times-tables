@@ -1,6 +1,6 @@
 # Recall Forge
 
-Recall Forge 0.9.1 is a self-hosted times tables practice app for local use. It is intentionally focused: authenticated local profiles, adaptive practice, scheduled review, smart training quests, challenge mode, heat maps, SQLite, no external accounts, no analytics, and no AI API. It also includes a light companion creature theme where practice gives the creature energy and XP while the learning engine stays focused on recall and spaced practice. Each species has a distinct five-stage evolution path and a dedicated transformation moment, but remains a calm maths companion rather than a needy care system.
+Recall Forge 0.10.0 is a self-hosted times tables practice app for local use. It is intentionally focused: authenticated local profiles, adaptive practice, scheduled review, long-term retention checks, smart training quests, challenge mode, heat maps, SQLite, no external accounts, no analytics, and no AI API. It also includes a light companion creature theme where practice gives the creature energy and XP while the learning engine stays focused on recall and spaced practice. Each species has a distinct five-stage evolution path and a dedicated transformation moment, but remains a calm maths companion rather than a needy care system.
 
 ## Stack
 
@@ -129,8 +129,8 @@ To make the stack manageable through Dockge:
 For controlled updates, replace `latest` on both `image:` lines with the same version, for example:
 
 ```yaml
-image: ghcr.io/rinsing4852/recall-forge-backend:0.9.1
-image: ghcr.io/rinsing4852/recall-forge-frontend:0.9.1
+image: ghcr.io/rinsing4852/recall-forge-backend:0.10.0
+image: ghcr.io/rinsing4852/recall-forge-frontend:0.10.0
 ```
 
 Keep both services on the same version. Take an admin database backup before rolling back across versions that include schema changes.
@@ -234,6 +234,7 @@ npm test
 - Explicit unseen, acquiring, reviewing, and secure learning states with 1, 3, 7, 14, 30, and 60-day review intervals.
 - Practice sessions composed from due reviews, acquiring facts, and interleaved facts while retaining adaptive weighting.
 - Parent retention reporting with due/overdue facts and 7/30-day scheduled-review accuracy.
+- Admin-scheduled long-term recall checks that repeat one fixed question set at baseline, 4 weeks, and 8 weeks, comparing first-answer accuracy plus average and median recall speed.
 - Installable PWA shell with an offline reconnection page; authenticated API data is never cached.
 - Pseudonymous home-evaluation CSV export with no profile names, prompts, or submitted answers.
 - A higher-reward explorer quest encourages tables that have had little or no practice.
@@ -272,14 +273,14 @@ The backend applies ordered, repeatable schema migrations, auto-creates tables o
 - `question_attempts`
 - `fact_stats`
 - `learning_sessions`
-
-## License
-
-Recall Forge is available under the [MIT License](LICENSE).
 - `learning_session_questions`
 - `challenge_sessions`
 - `challenge_attempts`
 - `training_quests`
+- `retention_assessments`
+- `retention_assessment_questions`
+- `retention_assessment_rounds`
+- `retention_assessment_attempts`
 
 Creature state is stored on each local user profile:
 
@@ -328,6 +329,10 @@ Creature state is stored on each local user profile:
 - `POST /practice/answer`
 - `POST /challenge/start`
 - `POST /challenge/submit`
+- `GET /users/{user_id}/retention-assessments`
+- `POST /retention-assessments`
+- `POST /retention-assessments/{assessment_id}/start`
+- `POST /retention-assessments/{assessment_id}/submit`
 - `GET /dashboard/{user_id}`
 
 When accessed through the frontend, these same backend routes are available through `/backend-api`, for example:
@@ -336,6 +341,10 @@ When accessed through the frontend, these same backend routes are available thro
 /backend-api/users
 /backend-api/dashboard/1
 ```
+
+## License
+
+Recall Forge is available under the [MIT License](LICENSE).
 
 ## Notes
 

@@ -137,11 +137,60 @@ def _add_fact_learning_state(engine: Engine) -> None:
             )
 
 
+def _create_retention_assessment_tables(engine: Engine) -> None:
+    statements = [
+        """CREATE TABLE IF NOT EXISTS retention_assessments (
+            id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            selected_tables VARCHAR(64) NOT NULL, question_mode VARCHAR(16) NOT NULL DEFAULT 'multiply',
+            question_count INTEGER NOT NULL, status VARCHAR(24) NOT NULL DEFAULT 'baseline_ready',
+            baseline_completed_at DATETIME, week4_due_at DATETIME, week8_due_at DATETIME,
+            completed_at DATETIME, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)""",
+        """CREATE TABLE IF NOT EXISTS retention_assessment_questions (
+            id INTEGER PRIMARY KEY, assessment_id INTEGER NOT NULL REFERENCES retention_assessments(id) ON DELETE CASCADE,
+            position INTEGER NOT NULL, fact_id INTEGER NOT NULL REFERENCES facts(id),
+            question_type VARCHAR(32) NOT NULL, prompt VARCHAR(80) NOT NULL,
+            CONSTRAINT uq_retention_assessment_position UNIQUE (assessment_id, position))""",
+        """CREATE TABLE IF NOT EXISTS retention_assessment_rounds (
+            id INTEGER PRIMARY KEY, assessment_id INTEGER NOT NULL REFERENCES retention_assessments(id) ON DELETE CASCADE,
+            round_key VARCHAR(16) NOT NULL, status VARCHAR(16) NOT NULL DEFAULT 'active', due_at DATETIME,
+            started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, completed_at DATETIME,
+            total_time_ms INTEGER NOT NULL DEFAULT 0, correct_count INTEGER NOT NULL DEFAULT 0,
+            CONSTRAINT uq_retention_assessment_round UNIQUE (assessment_id, round_key))""",
+        """CREATE TABLE IF NOT EXISTS retention_assessment_attempts (
+            id INTEGER PRIMARY KEY, round_id INTEGER NOT NULL REFERENCES retention_assessment_rounds(id) ON DELETE CASCADE,
+            question_id INTEGER NOT NULL REFERENCES retention_assessment_questions(id) ON DELETE CASCADE,
+            answer_given VARCHAR(32) NOT NULL, correct_answer INTEGER NOT NULL, is_correct BOOLEAN NOT NULL,
+            response_time_ms INTEGER NOT NULL, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT uq_retention_round_question UNIQUE (round_id, question_id))""",
+        "CREATE INDEX IF NOT EXISTS ix_retention_assessments_user ON retention_assessments (user_id)",
+        "CREATE INDEX IF NOT EXISTS ix_retention_questions_assessment ON retention_assessment_questions (assessment_id)",
+        "CREATE INDEX IF NOT EXISTS ix_retention_rounds_assessment ON retention_assessment_rounds (assessment_id)",
+        "CREATE INDEX IF NOT EXISTS ix_retention_attempts_round ON retention_assessment_attempts (round_id)",
+    ]
+    with engine.begin() as connection:
+        for statement in statements:
+            connection.execute(text(statement))
+
+
+def _add_retention_active_index(engine: Engine) -> None:
+    if not inspect(engine).has_table("retention_assessments"):
+        return
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_retention_active_user "
+                "ON retention_assessments (user_id) WHERE status != 'completed'"
+            )
+        )
+
+
 MIGRATIONS: list[Migration] = [
     (1, _add_missing_user_columns),
     (2, _add_first_attempt_speed_columns),
     (3, _add_training_policy_columns),
     (4, _add_fact_learning_state),
+    (5, _create_retention_assessment_tables),
+    (6, _add_retention_active_index),
 ]
 
 

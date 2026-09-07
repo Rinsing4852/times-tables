@@ -173,3 +173,45 @@ test("completion and results screens fit a phone", async ({ page }, testInfo) =>
   await expect(page.getByRole("heading", { name: /completed a training quest/ })).toBeVisible();
   await auditScreen(page, testInfo, "16-quest-complete");
 });
+
+test("parent can schedule a fixed recall check that a learner completes on a small phone", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "phone-small", "Small-phone retention workflow");
+  test.setTimeout(90_000);
+  const learnerName = `Recall Learner ${Date.now()}`;
+  await login(page);
+
+  await page.getByText("Settings", { exact: true }).click();
+  await page.getByPlaceholder("Profile name").fill(learnerName);
+  await page.getByRole("button", { name: "Create", exact: true }).click();
+  await expect(page.locator(".adminPanel .feedback")).toHaveText("Profile created.");
+  const learnerRow = page.locator(".adminUserRow").filter({ hasText: learnerName });
+  await learnerRow.getByRole("button", { name: "View dashboard" }).click();
+  await page.getByRole("button", { name: "Recall tests" }).click();
+  await expect(page.getByRole("heading", { name: "Recall checks" })).toBeVisible();
+  await auditScreen(page, testInfo, "17-retention-parent-setup");
+  await page.locator(".retentionSetup select").first().selectOption("10");
+  await page.getByRole("button", { name: "Schedule baseline" }).click();
+  await expect(page.getByText(`Baseline ready for ${learnerName}.`)).toBeVisible();
+  await auditScreen(page, testInfo, "18-retention-scheduled");
+
+  await page.getByText("Settings", { exact: true }).click();
+  await page.getByRole("button", { name: "Log out" }).click();
+  await page.getByRole("button", { name: new RegExp(learnerName) }).click();
+  await page.getByRole("button", { name: `Continue as ${learnerName}` }).click();
+  await expect(page.getByRole("heading", { name: "Baseline ready" })).toBeVisible();
+  await page.getByRole("button", { name: "Start recall check" }).click();
+  await expect(page.locator(".questionText")).toBeVisible();
+  await auditScreen(page, testInfo, "19-retention-question");
+
+  for (let index = 0; index < 10; index += 1) {
+    await answerVisibleQuestion(page);
+    if (index < 9) await expect(page.locator(".progressLine")).toHaveText(`${index + 2} of 10`);
+  }
+  await expect(page.getByRole("heading", { name: "Recall check complete" })).toBeVisible();
+  await auditScreen(page, testInfo, "20-retention-complete");
+  await page.getByRole("button", { name: "See results" }).click();
+  await page.getByRole("button", { name: "Recall tests" }).click();
+  await expect(page.getByText("4-week check:")).toBeVisible();
+  await expect(page.getByText("Starting point")).toBeVisible();
+  await auditScreen(page, testInfo, "21-retention-results");
+});

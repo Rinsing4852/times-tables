@@ -85,6 +85,18 @@ class ChallengeSubmit(BaseModel):
     answers: list[ChallengeAnswer] = Field(min_length=1, max_length=100)
 
 
+class RetentionAssessmentCreate(BaseModel):
+    user_id: int
+    tables: list[int] = Field(min_length=1)
+    question_count: int = Field(default=20, ge=5, le=60)
+    question_mode: QuestionMode = "multiply"
+
+
+class RetentionAssessmentSubmit(BaseModel):
+    round_id: int
+    answers: list[ChallengeAnswer] = Field(min_length=1, max_length=60)
+
+
 class CreatureUpdate(BaseModel):
     creature_type: CreatureType
     creature_name: str = Field(min_length=1, max_length=80)

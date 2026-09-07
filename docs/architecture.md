@@ -18,6 +18,7 @@ The hardened Unraid deployment exposes only the frontend. Browser requests use t
 - `learning.py`: attempt statistics, learning events, and session rewards.
 - `profiles.py`: user payloads, required-table policy, and progress reset.
 - `reports.py`: retention summaries and pseudonymous evaluation export.
+- `retention.py`: fixed-test generation and comparable baseline/4-week/8-week metrics.
 - `quests.py`: rules-based quest generation and quest question variants.
 - `creatures.py`: energy, XP, stages, cosmetics, and positive status language.
 - `migrations.py`: ordered additive SQLite migrations.
@@ -27,6 +28,7 @@ The hardened Unraid deployment exposes only the frontend. Browser requests use t
 - `app/page.tsx`: authentication state, navigation, API orchestration, and focused learning modes.
 - `components/CreatureExperience.tsx`: creature home, profile, and evolution views.
 - `components/DashboardView.tsx`: parent statistics, retention, heat maps, and history.
+- `components/RetentionTest.tsx`: distraction-free long-term recall assessment flow.
 - `components/AdminPanel.tsx`: local profile and export administration.
 - `lib/types.ts`: shared API response contracts.
 - `public/sw.js`: unauthenticated application-shell caching only. `/backend-api/*` is always network-only.

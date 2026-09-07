@@ -63,16 +63,19 @@ Parent-facing measures answer whether learning lasted:
 
 Keep the child home screen simple. It may say that a review quest is ready, but detailed retention analytics remain in the dashboard.
 
-## Phase 5: Home Evaluation
+## Phase 5: Long-Term Recall Checks
 
-Status: available for ongoing home use.
+Status: complete in 0.10.0.
 
-For a home project, use anonymous local profile identifiers and export only aggregate results. Compare two four-week periods:
+An admin can schedule a controlled assessment for a profile. The app stores one immutable question set and presents it at three measurement points:
 
-- Baseline: existing adaptive practice.
-- Trial: due-review session composition.
+- Baseline: available immediately.
+- Four-week check: due 28 days after baseline completion.
+- Eight-week check: due 56 days after baseline completion.
 
-Track first-attempt accuracy, median response time, seven-day retention, thirty-day retention where available, and practice completion. Do not compare children with one another and do not add leaderboards.
+The assessment has no visible timer and gives no question-by-question feedback. Parent reporting compares first-answer accuracy, average recall time, and median recall time against baseline. The ordinary adaptive scheduler continues independently, and no child is compared with another profile.
+
+The pseudonymous evaluation CSV remains available for broader home evaluation without exporting names, prompts, or submitted answers.
 
 ## Phase 6: Accessible Local Installation
 

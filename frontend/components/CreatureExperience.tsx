@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { CREATURE_STAGES, CREATURE_TYPES, creatureAsset, creatureSlug } from "../lib/creatures";
-import type { Creature, Dashboard, EvolutionEvent, TrainingQuest } from "../lib/types";
+import type { Creature, Dashboard, EvolutionEvent, RetentionAssessment, TrainingQuest } from "../lib/types";
 import { Metric } from "./Metric";
 
 export function CreatureHome({
@@ -13,6 +13,7 @@ export function CreatureHome({
   onStartQuest,
   learningDashboard,
   selectedTables,
+  onStartRetention,
 }: {
   creature: Creature | null;
   onStartPractice: (limit: number) => void;
@@ -21,6 +22,7 @@ export function CreatureHome({
   onStartQuest: (quest: TrainingQuest) => void;
   learningDashboard: Dashboard | null;
   selectedTables: number[];
+  onStartRetention: (assessment: RetentionAssessment) => void;
 }) {
   const [openedAt] = useState(() => Date.now());
   if (!creature) return <section className="panel">Loading companion...</section>;
@@ -32,6 +34,7 @@ export function CreatureHome({
     .filter((date): date is Date => Boolean(date && date.getTime() > openedAt))
     .sort((left, right) => left.getTime() - right.getTime());
   const rememberedFacts = selectedFacts.filter((cell) => cell.learning_state === "secure").length;
+  const currentRetention = (learningDashboard?.retention_assessments || []).find((item) => item.status !== "completed");
 
   function nextReviewLabel(date: Date | undefined) {
     if (!date) return "No reviews are waiting yet. New facts will be scheduled as you practise.";
@@ -90,6 +93,23 @@ export function CreatureHome({
         </div>
         {dueFacts.length > 0 && <button type="button" onClick={() => onStartPractice(5)}>Review 5 facts</button>}
       </section>
+
+      {currentRetention && (
+        <section className={`panel retentionHomeCard ${currentRetention.can_start ? "reviewReady" : ""}`}>
+          <div>
+            <p className="eyebrow">Long-term recall check</p>
+            <h2>{currentRetention.can_start ? `${currentRetention.next_round_label} ready` : `${currentRetention.next_round_label} is planned`}</h2>
+            <p>
+              {currentRetention.can_start
+                ? `Answer the same ${currentRetention.question_count} questions without a countdown clock.`
+                : `The next check is on ${new Date(currentRetention.next_due_at || "").toLocaleDateString(undefined, { day: "numeric", month: "long" })}. Keep practising normally until then.`}
+            </p>
+          </div>
+          {currentRetention.can_start && (
+            <button type="button" onClick={() => onStartRetention(currentRetention)}>Start recall check</button>
+          )}
+        </section>
+      )}
 
       <section className="panel questSection">
         <div className="sectionHeader">

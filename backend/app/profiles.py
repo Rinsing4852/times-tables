@@ -12,6 +12,10 @@ from .models import (
     FactStat,
     LearningSession,
     QuestionAttempt,
+    RetentionAssessment,
+    RetentionAssessmentAttempt,
+    RetentionAssessmentQuestion,
+    RetentionAssessmentRound,
     TrainingQuest,
     User,
 )
@@ -51,6 +55,22 @@ def user_payload(user: User) -> dict:
 
 
 def reset_user_progress(db: Session, user: User) -> None:
+    assessment_ids = db.scalars(select(RetentionAssessment.id).where(RetentionAssessment.user_id == user.id)).all()
+    if assessment_ids:
+        round_ids = db.scalars(
+            select(RetentionAssessmentRound.id).where(RetentionAssessmentRound.assessment_id.in_(assessment_ids))
+        ).all()
+        if round_ids:
+            db.query(RetentionAssessmentAttempt).filter(RetentionAssessmentAttempt.round_id.in_(round_ids)).delete(
+                synchronize_session=False
+            )
+        db.query(RetentionAssessmentRound).filter(RetentionAssessmentRound.assessment_id.in_(assessment_ids)).delete(
+            synchronize_session=False
+        )
+        db.query(RetentionAssessmentQuestion).filter(
+            RetentionAssessmentQuestion.assessment_id.in_(assessment_ids)
+        ).delete(synchronize_session=False)
+        db.query(RetentionAssessment).filter(RetentionAssessment.id.in_(assessment_ids)).delete(synchronize_session=False)
     db.query(LearningSession).filter(LearningSession.user_id == user.id).delete(synchronize_session=False)
     challenge_ids = db.scalars(select(ChallengeSession.id).where(ChallengeSession.user_id == user.id)).all()
     if challenge_ids:
