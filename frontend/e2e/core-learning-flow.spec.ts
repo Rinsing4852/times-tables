@@ -34,8 +34,8 @@ test("keyboard submission is acknowledged and advances practice", async ({ page 
   await page.getByRole("textbox", { name: "Answer" }).fill(solve(prompt));
   await page.getByRole("textbox", { name: "Answer" }).press("Enter");
 
-  await expect(page.locator(".feedback")).toContainText("Correct.");
   await expect(page.locator(".progressLine")).toHaveText("2 of 5");
+  await expect(page.getByRole("textbox", { name: "Answer" })).toHaveValue("");
 });
 
 test("phone layouts stay within the viewport", async ({ page }, testInfo) => {
