@@ -97,8 +97,8 @@ export function CreatureHome({
       {currentRetention && (
         <section className={`panel retentionHomeCard ${currentRetention.can_start ? "reviewReady" : ""}`}>
           <div>
-            <p className="eyebrow">Long-term recall check</p>
-            <h2>{currentRetention.can_start ? `${currentRetention.next_round_label} ready` : `${currentRetention.next_round_label} is planned`}</h2>
+            <p className="eyebrow">Long-term memory test</p>
+            <h2>{currentRetention.can_start ? `${currentRetention.next_round_label} test is ready` : `${currentRetention.next_round_label} test is planned`}</h2>
             <p>
               {currentRetention.can_start
                 ? `Answer the same ${currentRetention.question_count} questions without a countdown clock.`
@@ -106,7 +106,7 @@ export function CreatureHome({
             </p>
           </div>
           {currentRetention.can_start && (
-            <button type="button" onClick={() => onStartRetention(currentRetention)}>Start recall check</button>
+            <button type="button" onClick={() => onStartRetention(currentRetention)}>Start test</button>
           )}
         </section>
       )}

@@ -1,11 +1,12 @@
 "use client";
 
-import { CSSProperties, useMemo, useState } from "react";
+import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import type { Dashboard, DashboardCell, QuestionMode, RetentionAssessment } from "../lib/types";
 import { Metric } from "./Metric";
 import { TableSelector } from "./TableSelector";
 
 const ALL_TABLES = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+export type DashboardSection = "overview" | "accuracy" | "speed" | "progress" | "retention";
 
 function formatMs(ms: number) {
   if (ms < 1000) return `${ms} ms`;
@@ -16,16 +17,20 @@ export function DashboardView({
   dashboard,
   tables,
   profileName,
+  initialView = "overview",
   canScheduleRetention,
   onScheduleRetention,
+  onStartRetention,
 }: {
   dashboard: Dashboard | null;
   tables: number[];
   profileName: string;
+  initialView?: DashboardSection;
   canScheduleRetention: boolean;
   onScheduleRetention: (questionCount: number, questionMode: QuestionMode, testTables: number[]) => Promise<void>;
+  onStartRetention: (assessment: RetentionAssessment) => void;
 }) {
-  const [view, setView] = useState<"overview" | "accuracy" | "speed" | "progress" | "retention">("overview");
+  const [view, setView] = useState<DashboardSection>(initialView);
   const selectedTables = useMemo(() => [...tables].sort((a, b) => a - b), [tables]);
   const selectedCells = useMemo(() => (dashboard?.cells || []).filter((cell) => selectedTables.includes(cell.a)), [dashboard, selectedTables]);
   const selectedTotals = useMemo(() => {
@@ -44,13 +49,15 @@ export function DashboardView({
     [selectedCells],
   );
 
+  useEffect(() => setView(initialView), [initialView, profileName]);
+
   if (!dashboard) return <section className="panel">Loading dashboard...</section>;
 
   return (
     <section className="dashboard">
       <div className="sectionHeader"><div><p className="eyebrow">Progress dashboard</p><h2>{profileName}&apos;s progress</h2></div></div>
       <div className="dashboardTabs" aria-label="Dashboard view">
-        {([['overview', 'Overview'], ['accuracy', 'Accuracy'], ['speed', 'Speed'], ['progress', 'Progress'], ['retention', 'Recall tests']] as const).map(([value, label]) => (
+        {([['overview', 'Overview'], ['accuracy', 'Accuracy'], ['speed', 'Speed'], ['progress', 'Progress'], ['retention', 'Memory tests']] as const).map(([value, label]) => (
           <button type="button" key={value} className={view === value ? "active" : ""} onClick={() => setView(value)}>{label}</button>
         ))}
       </div>
@@ -81,6 +88,7 @@ export function DashboardView({
           profileName={profileName}
           canSchedule={canScheduleRetention}
           onSchedule={onScheduleRetention}
+          onStart={onStartRetention}
         />
       )}
     </section>
@@ -98,27 +106,39 @@ function RetentionAssessments({
   profileName,
   canSchedule,
   onSchedule,
+  onStart,
 }: {
   assessments: RetentionAssessment[];
   selectedTables: number[];
   profileName: string;
   canSchedule: boolean;
   onSchedule: (questionCount: number, questionMode: QuestionMode, testTables: number[]) => Promise<void>;
+  onStart: (assessment: RetentionAssessment) => void;
 }) {
   const [questionCount, setQuestionCount] = useState(20);
   const [questionMode, setQuestionMode] = useState<QuestionMode>("multiply");
   const [testTables, setTestTables] = useState(selectedTables);
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
+  const startButtonRef = useRef<HTMLButtonElement>(null);
+  const focusStartAfterSchedule = useRef(false);
   const activeAssessment = assessments.find((item) => item.status !== "completed");
+
+  useEffect(() => {
+    if (!activeAssessment?.can_start || !focusStartAfterSchedule.current) return;
+    focusStartAfterSchedule.current = false;
+    requestAnimationFrame(() => startButtonRef.current?.focus({ preventScroll: true }));
+  }, [activeAssessment?.assessment_id, activeAssessment?.can_start]);
 
   async function schedule() {
     setSaving(true);
     setMessage("Scheduling baseline...");
+    focusStartAfterSchedule.current = true;
     try {
       await onSchedule(questionCount, questionMode, testTables);
       setMessage(`Baseline ready for ${profileName}.`);
     } catch (error) {
+      focusStartAfterSchedule.current = false;
       setMessage(error instanceof Error ? error.message : "Could not schedule the recall check.");
     } finally {
       setSaving(false);
@@ -128,11 +148,13 @@ function RetentionAssessments({
   return (
     <section className="panel retentionDashboard">
       <div className="sectionHeader">
-        <div><p className="eyebrow">Long-term retention</p><h2>Recall checks</h2></div>
+        <div><p className="eyebrow">Long-term retention</p><h2>Memory tests</h2></div>
       </div>
-      <p>
-        The same questions are given at baseline, after 4 weeks, and after 8 weeks. Each check records first-answer accuracy and recall speed without a visible timer.
-      </p>
+      <ol className="retentionSteps">
+        <li><strong>Set up a baseline test.</strong> Choose the tables, question count and question type.</li>
+        <li><strong>Complete the baseline.</strong> The Start test button appears here and on the learner home screen.</li>
+        <li><strong>Repeat at 4 and 8 weeks.</strong> The same questions measure retained accuracy and recall speed.</li>
+      </ol>
       {canSchedule && !activeAssessment && (
         <div className="retentionSetup">
           <div className="retentionTableChoice">
@@ -155,13 +177,18 @@ function RetentionAssessments({
               <option value="mixed">Mixed</option>
             </select>
           </label>
-          <button type="button" onClick={schedule} disabled={saving}>{saving ? "Scheduling..." : "Schedule baseline"}</button>
+          <button type="button" onClick={schedule} disabled={saving}>{saving ? "Creating test..." : "Create baseline test"}</button>
         </div>
       )}
-      {activeAssessment && <p className="retentionNotice"><strong>{activeAssessment.next_round_label}:</strong> {activeAssessment.can_start ? "ready on the learner home screen" : `planned for ${formatDate(activeAssessment.next_due_at)}`}.</p>}
+      {activeAssessment && (
+        <div className="retentionNotice">
+          <span><strong>{activeAssessment.next_round_label}:</strong> {activeAssessment.can_start ? "ready to start now" : `planned for ${formatDate(activeAssessment.next_due_at)}`}.</span>
+          {activeAssessment.can_start && <button ref={startButtonRef} type="button" onClick={() => onStart(activeAssessment)}>Start test</button>}
+        </div>
+      )}
       {message && <p className="feedback" role="status">{message}</p>}
       {assessments.length === 0 ? (
-        <p className="quiet">No long-term recall check has been scheduled yet.</p>
+        <p className="quiet">No long-term memory test has been created yet.</p>
       ) : (
         <div className="retentionHistory">
           {assessments.map((assessment) => (

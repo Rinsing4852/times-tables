@@ -38,6 +38,23 @@ test("keyboard submission is acknowledged and advances practice", async ({ page 
   await expect(page.getByRole("textbox", { name: "Answer" })).toHaveValue("");
 });
 
+test("settings button opens and closes the menu", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop", "Settings interaction only needs one browser project");
+  await page.goto("/");
+  await page.getByRole("button", { name: /Test Parent/ }).click();
+  await page.getByPlaceholder("Passcode").fill("246824");
+  await page.getByRole("button", { name: "Continue as Test Parent" }).click();
+
+  const settingsButton = page.getByRole("button", { name: "Settings", exact: true });
+  await settingsButton.click();
+  await expect(settingsButton).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByRole("dialog", { name: "Settings menu" })).toBeVisible();
+
+  await settingsButton.click();
+  await expect(settingsButton).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByRole("dialog", { name: "Settings menu" })).toHaveCount(0);
+});
+
 test("phone layouts stay within the viewport", async ({ page }, testInfo) => {
   test.skip(!isPhoneProject(testInfo.project.name), "Phone-only viewport assertion");
   await page.goto("/");

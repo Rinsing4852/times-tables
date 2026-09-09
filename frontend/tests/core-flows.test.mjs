@@ -129,4 +129,8 @@ test("long-term recall checks use a distraction-free fixed assessment surface", 
   assert.match(retentionSource, /Recall check complete/);
   assert.doesNotMatch(retentionSource, /setInterval/);
   assert.match(dashboardSource, /Baseline, 4-week and 8-week checks/);
+  assert.match(dashboardSource, /Create baseline test/);
+  assert.match(dashboardSource, /Start test/);
+  assert.match(pageSource, /aria-expanded=\{settingsOpen\}/);
+  assert.match(pageSource, /Memory tests/);
 });

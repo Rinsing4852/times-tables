@@ -3,7 +3,7 @@
 import { FormEvent, RefObject, useCallback, useEffect, useRef, useState } from "react";
 import { AdminPanel } from "../components/AdminPanel";
 import { CreatureAvatar, CreatureHome, CreatureProfile, EvolutionPage, EvolutionPrompt } from "../components/CreatureExperience";
-import { DashboardView } from "../components/DashboardView";
+import { DashboardView, type DashboardSection } from "../components/DashboardView";
 import { Metric } from "../components/Metric";
 import { NumberPad } from "../components/NumberPad";
 import { ProfileLogin } from "../components/ProfileLogin";
@@ -85,6 +85,7 @@ export default function Home() {
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [homeDashboard, setHomeDashboard] = useState<Dashboard | null>(null);
   const [dashboardUserId, setDashboardUserId] = useState<number | null>(null);
+  const [dashboardSection, setDashboardSection] = useState<DashboardSection>("overview");
   const [practicePreset, setPracticePreset] = useState(10);
   const [challengePreset, setChallengePreset] = useState(20);
   const [quests, setQuests] = useState<TrainingQuest[]>([]);
@@ -94,7 +95,27 @@ export default function Home() {
   const [pendingEvolution, setPendingEvolution] = useState<EvolutionEvent | null>(null);
   const [activeRetention, setActiveRetention] = useState<RetentionAssessment | null>(null);
   const [postEvolutionTab, setPostEvolutionTab] = useState<Mode>("home");
+  const settingsMenuRef = useRef<HTMLDivElement>(null);
   const focusMode = tab === "practice" || tab === "quest" || tab === "challenge" || tab === "retention" || tab === "evolution";
+
+  useEffect(() => {
+    if (!settingsOpen) return;
+
+    function closeOnOutsidePress(event: PointerEvent) {
+      if (!settingsMenuRef.current?.contains(event.target as Node)) setSettingsOpen(false);
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setSettingsOpen(false);
+    }
+
+    document.addEventListener("pointerdown", closeOnOutsidePress);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePress);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [settingsOpen]);
 
   function queueEvolution(updatedCreature: Creature | null) {
     if (!updatedCreature?.evolution_from || !updatedCreature.evolution_to) return;
@@ -363,9 +384,22 @@ export default function Home() {
           <p className="eyebrow">Local practice engine</p>
           <h1>Recall Forge</h1>
         </div>
-        {activeUser && <details className="settingsMenu" open={settingsOpen} onToggle={(event) => setSettingsOpen(event.currentTarget.open)}>
-          <summary>Settings</summary>
-          <div className="settingsPanel">
+        {activeUser && <div className={`settingsMenu ${settingsOpen ? "open" : ""}`} ref={settingsMenuRef}>
+          <button
+            type="button"
+            className="settingsToggle"
+            aria-label="Settings"
+            aria-expanded={settingsOpen}
+            aria-controls="settings-panel"
+            onClick={() => setSettingsOpen((open) => !open)}
+          >
+            Settings
+          </button>
+          {settingsOpen && <div className="settingsPanel" id="settings-panel" role="dialog" aria-label="Settings menu">
+          <div className="settingsPanelHeader">
+            <strong>Settings</strong>
+            <button type="button" className="secondaryButton" onClick={() => setSettingsOpen(false)}>Close</button>
+          </div>
           <div className="profileForm">
             <strong>{activeUser?.name}</strong>
             <button type="button" className="secondaryButton" onClick={logout}>Log out</button>
@@ -378,9 +412,17 @@ export default function Home() {
               </button>
               <button type="button" className={tab === "dashboard" ? "active" : ""} onClick={() => {
                 setDashboardUserId(activeUser.id);
+                setDashboardSection("overview");
                 navigate("dashboard");
               }}>
                 Dashboard
+              </button>
+              <button type="button" onClick={() => {
+                setDashboardUserId(activeUser.id);
+                setDashboardSection("retention");
+                navigate("dashboard");
+              }}>
+                Memory tests
               </button>
             </div>
           )}
@@ -392,12 +434,13 @@ export default function Home() {
               onViewDashboard={(userId) => {
                 setDashboard(null);
                 setDashboardUserId(userId);
+                setDashboardSection("overview");
                 navigate("dashboard");
               }}
             />
           )}
-          </div>
-        </details>}
+          </div>}
+        </div>}
       </header>}
 
       <section className="workspace">
@@ -535,8 +578,10 @@ export default function Home() {
                   dashboard={dashboard}
                   tables={tables}
                   profileName={users.find((user) => user.id === dashboardUserId)?.name || activeUser.name}
+                  initialView={dashboardSection}
                   canScheduleRetention={activeUser.is_admin}
                   onScheduleRetention={scheduleRetentionCheck}
+                  onStartRetention={startRetentionCheck}
                 />
               </>
             )}

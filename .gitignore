@@ -8,4 +8,6 @@ test-results/
 playwright-report/
 *.pyc
 *.db
+*.db-shm
+*.db-wal
 recall_forge.db

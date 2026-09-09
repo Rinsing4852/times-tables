@@ -186,20 +186,21 @@ test("parent can schedule a fixed recall check that a learner completes on a sma
   await expect(page.locator(".adminPanel .feedback")).toHaveText("Profile created.");
   const learnerRow = page.locator(".adminUserRow").filter({ hasText: learnerName });
   await learnerRow.getByRole("button", { name: "View dashboard" }).click();
-  await page.getByRole("button", { name: "Recall tests" }).click();
-  await expect(page.getByRole("heading", { name: "Recall checks" })).toBeVisible();
+  await page.getByRole("button", { name: "Memory tests" }).click();
+  await expect(page.getByRole("heading", { name: "Memory tests" })).toBeVisible();
   await auditScreen(page, testInfo, "17-retention-parent-setup");
   await page.locator(".retentionSetup select").first().selectOption("10");
-  await page.getByRole("button", { name: "Schedule baseline" }).click();
+  await page.getByRole("button", { name: "Create baseline test" }).click();
   await expect(page.getByText(`Baseline ready for ${learnerName}.`)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Start test" })).toBeFocused();
   await auditScreen(page, testInfo, "18-retention-scheduled");
 
   await page.getByText("Settings", { exact: true }).click();
   await page.getByRole("button", { name: "Log out" }).click();
   await page.getByRole("button", { name: new RegExp(learnerName) }).click();
   await page.getByRole("button", { name: `Continue as ${learnerName}` }).click();
-  await expect(page.getByRole("heading", { name: "Baseline ready" })).toBeVisible();
-  await page.getByRole("button", { name: "Start recall check" }).click();
+  await expect(page.getByRole("heading", { name: "Baseline test is ready" })).toBeVisible();
+  await page.getByRole("button", { name: "Start test" }).click();
   await expect(page.locator(".questionText")).toBeVisible();
   await auditScreen(page, testInfo, "19-retention-question");
 
@@ -210,7 +211,7 @@ test("parent can schedule a fixed recall check that a learner completes on a sma
   await expect(page.getByRole("heading", { name: "Recall check complete" })).toBeVisible();
   await auditScreen(page, testInfo, "20-retention-complete");
   await page.getByRole("button", { name: "See results" }).click();
-  await page.getByRole("button", { name: "Recall tests" }).click();
+  await page.getByRole("button", { name: "Memory tests" }).click();
   await expect(page.getByText("4-week check:")).toBeVisible();
   await expect(page.getByText("Starting point")).toBeVisible();
   await auditScreen(page, testInfo, "21-retention-results");
