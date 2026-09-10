@@ -35,6 +35,10 @@ async function continuePastEvolution(page: Page) {
   }
 }
 
+async function selectDashboardView(page: Page, value: "accuracy" | "speed" | "progress" | "retention") {
+  await page.getByLabel("Dashboard view", { exact: true }).selectOption(value);
+}
+
 async function auditScreen(page: Page, testInfo: TestInfo, name: string) {
   await page.screenshot({ path: testInfo.outputPath(`${name}.png`), fullPage: true });
   const overflow = await page.evaluate(() => {
@@ -93,10 +97,11 @@ test("all primary screens fit a phone without horizontal scrolling", async ({ pa
 
   await page.getByText("Settings", { exact: true }).click();
   await page.getByRole("button", { name: "Dashboard", exact: true }).click();
+  await expect(page.locator(".dashboard .metricGrid")).toBeVisible();
   await auditScreen(page, testInfo, "07-dashboard-overview");
-  for (const tab of ["Accuracy", "Speed", "Progress"]) {
-    await page.getByRole("button", { name: tab, exact: true }).click();
-    await auditScreen(page, testInfo, `08-dashboard-${tab.toLowerCase()}`);
+  for (const [value, label] of [["accuracy", "Accuracy"], ["speed", "Speed"], ["progress", "Progress"]] as const) {
+    await selectDashboardView(page, value);
+    await auditScreen(page, testInfo, `08-dashboard-${label.toLowerCase()}`);
   }
 
   await page.getByRole("button", { name: "Back home", exact: true }).click();
@@ -186,7 +191,7 @@ test("parent can schedule a fixed recall check that a learner completes on a sma
   await expect(page.locator(".adminPanel .feedback")).toHaveText("Profile created.");
   const learnerRow = page.locator(".adminUserRow").filter({ hasText: learnerName });
   await learnerRow.getByRole("button", { name: "View dashboard" }).click();
-  await page.getByRole("button", { name: "Memory tests" }).click();
+  await selectDashboardView(page, "retention");
   await expect(page.getByRole("heading", { name: "Memory tests" })).toBeVisible();
   await auditScreen(page, testInfo, "17-retention-parent-setup");
   await page.locator(".retentionSetup select").first().selectOption("10");
@@ -211,7 +216,7 @@ test("parent can schedule a fixed recall check that a learner completes on a sma
   await expect(page.getByRole("heading", { name: "Recall check complete" })).toBeVisible();
   await auditScreen(page, testInfo, "20-retention-complete");
   await page.getByRole("button", { name: "See results" }).click();
-  await page.getByRole("button", { name: "Memory tests" }).click();
+  await selectDashboardView(page, "retention");
   await expect(page.getByText("4-week check:")).toBeVisible();
   await expect(page.getByText("Starting point")).toBeVisible();
   await auditScreen(page, testInfo, "21-retention-results");

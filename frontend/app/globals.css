@@ -1716,6 +1716,10 @@ h2 {
   gap: 8px;
 }
 
+.dashboardViewSelect {
+  display: none;
+}
+
 .retentionDashboard {
   display: grid;
   gap: 16px;
@@ -2294,7 +2298,18 @@ h2 {
   }
 
   .dashboardTabs {
-    grid-template-columns: repeat(2, 1fr);
+    display: none;
+  }
+
+  .dashboardViewSelect {
+    display: grid;
+    gap: 6px;
+    color: var(--muted);
+    font-weight: 900;
+  }
+
+  .dashboardViewSelect select {
+    width: 100%;
   }
 
   .metricGrid {
@@ -2475,38 +2490,71 @@ h2 {
     min-height: 24px;
   }
 
+  .heatMapPanel {
+    width: 100%;
+    min-width: 0;
+    padding: 12px 8px;
+    overflow: hidden;
+  }
+
+  .heatMapPanel .sectionHeader,
+  .heatMapPanel .heatLegend {
+    margin-right: 4px;
+    margin-left: 4px;
+  }
+
   .heatHeader,
   .heatCorner {
-    min-height: 30px;
-    font-size: 0.72rem;
+    min-height: 0;
+    aspect-ratio: 1;
+    overflow: hidden;
+    font-size: 0.64rem;
+    line-height: 1;
   }
 
   .heatCell {
-    min-height: 30px;
+    min-height: 0;
+    aspect-ratio: 1;
     border-width: 0;
   }
 
   .heatMapFrame {
     width: 100%;
-    overflow-x: visible;
+    min-width: 0;
+    overflow: hidden;
+    border-width: 1px;
   }
 
   .heatMap {
     width: 100%;
     min-width: 0;
-    grid-template-columns: 30px repeat(var(--heat-columns), minmax(0, 1fr));
+    grid-template-columns: minmax(22px, 1fr) repeat(var(--heat-columns), minmax(0, 1fr));
     gap: 1px;
   }
 
   .heatLegend {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    overflow-x: visible;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: hidden;
   }
 
   .heatLegend span {
+    min-height: 32px;
     min-width: 0;
-    padding: 4px 2px;
-    font-size: 0.68rem;
+    padding: 4px;
+    font-size: 0.66rem;
+    overflow-wrap: anywhere;
+  }
+
+  .dashboardControls {
+    justify-content: flex-start;
+  }
+
+  .dashboardControls .quiet {
+    width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  .dashboard .sectionHeader h2 {
     overflow-wrap: anywhere;
   }
 

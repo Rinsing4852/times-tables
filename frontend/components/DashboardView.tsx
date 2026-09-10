@@ -7,6 +7,13 @@ import { TableSelector } from "./TableSelector";
 
 const ALL_TABLES = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 export type DashboardSection = "overview" | "accuracy" | "speed" | "progress" | "retention";
+const DASHBOARD_SECTIONS: ReadonlyArray<[DashboardSection, string]> = [
+  ["overview", "Overview"],
+  ["accuracy", "Accuracy"],
+  ["speed", "Speed"],
+  ["progress", "Progress"],
+  ["retention", "Memory tests"],
+];
 
 function formatMs(ms: number) {
   if (ms < 1000) return `${ms} ms`;
@@ -56,10 +63,16 @@ export function DashboardView({
   return (
     <section className="dashboard">
       <div className="sectionHeader"><div><p className="eyebrow">Progress dashboard</p><h2>{profileName}&apos;s progress</h2></div></div>
-      <div className="dashboardTabs" aria-label="Dashboard view">
-        {([['overview', 'Overview'], ['accuracy', 'Accuracy'], ['speed', 'Speed'], ['progress', 'Progress'], ['retention', 'Memory tests']] as const).map(([value, label]) => (
+      <div className="dashboardTabs" aria-label="Dashboard tabs">
+        {DASHBOARD_SECTIONS.map(([value, label]) => (
           <button type="button" key={value} className={view === value ? "active" : ""} onClick={() => setView(value)}>{label}</button>
         ))}
+      </div>
+      <div className="dashboardViewSelect">
+        <label htmlFor="dashboard-view-select">Dashboard view</label>
+        <select id="dashboard-view-select" value={view} onChange={(event) => setView(event.target.value as DashboardSection)}>
+          {DASHBOARD_SECTIONS.map(([value, label]) => <option value={value} key={value}>{label}</option>)}
+        </select>
       </div>
       <div className="dashboardControls">
         <span className="quiet">
@@ -319,7 +332,7 @@ function HeatMap({
   }
 
   return (
-    <section className="panel">
+    <section className="panel heatMapPanel">
       <div className="sectionHeader"><h2>{title}</h2></div>
       <div className="heatMapFrame">
         <div className="heatMap" style={{ "--heat-columns": columns.length } as CSSProperties}>

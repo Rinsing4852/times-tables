@@ -106,6 +106,9 @@ test("heat maps use five colour-only levels", () => {
   }
   assert.doesNotMatch(dashboardSource, /Show facts in heat map boxes/);
   assert.doesNotMatch(dashboardSource, /speed10/);
+  assert.match(dashboardSource, /dashboardViewSelect/);
+  assert.match(dashboardSource, /Dashboard view/);
+  assert.match(dashboardSource, /heatMapPanel/);
 });
 
 test("temporary Mega Form has a visible unlock state", () => {

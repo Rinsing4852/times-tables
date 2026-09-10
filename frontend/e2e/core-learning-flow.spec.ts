@@ -124,11 +124,25 @@ test("phone dashboard contains the heat map without widening the page", async ({
   await page.getByRole("button", { name: "Continue as Test Parent" }).click();
   await page.getByText("Settings", { exact: true }).click();
   await page.getByRole("button", { name: "Dashboard", exact: true }).click();
-  await page.getByRole("button", { name: "Accuracy", exact: true }).click();
+  await page.getByLabel("Dashboard view", { exact: true }).selectOption("accuracy");
 
   const dimensions = await page.evaluate(() => ({ width: window.innerWidth, scrollWidth: document.documentElement.scrollWidth }));
   expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.width);
+  await expect(page.locator(".dashboardTabs")).toBeHidden();
+  await expect(page.getByLabel("Dashboard view", { exact: true })).toHaveValue("accuracy");
   await expect(page.locator(".heatMapFrame")).toBeVisible();
+  const heatMapDimensions = await page.locator(".heatMapPanel").evaluate((panel) => {
+    const map = panel.querySelector<HTMLElement>(".heatMap");
+    const panelRect = panel.getBoundingClientRect();
+    const mapRect = map?.getBoundingClientRect();
+    return {
+      mapInsidePanel: Boolean(mapRect && mapRect.left >= panelRect.left && mapRect.right <= panelRect.right + 1),
+      mapScrollWidth: map?.scrollWidth || 0,
+      mapClientWidth: map?.clientWidth || 0,
+    };
+  });
+  expect(heatMapDimensions.mapInsidePanel).toBe(true);
+  expect(heatMapDimensions.mapScrollWidth).toBeLessThanOrEqual(heatMapDimensions.mapClientWidth + 1);
 });
 
 test("the local app shell registers its service worker", async ({ page }, testInfo) => {
