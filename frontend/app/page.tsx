@@ -349,6 +349,13 @@ export default function Home() {
     navigate("retention");
   }
 
+  function openMemoryTests() {
+    if (!activeUser) return;
+    setDashboardUserId(activeUser.id);
+    setDashboardSection("retention");
+    navigate("dashboard");
+  }
+
   async function scheduleRetentionCheck(questionCount: number, mode: QuestionMode, testTables: number[]) {
     if (!activeUser?.is_admin || !dashboardUserId) return;
     await api<RetentionAssessment>("/retention-assessments", {
@@ -378,7 +385,7 @@ export default function Home() {
   return (
     <>
     <a className="skipLink" href="#main-content">Skip to main content</a>
-    <main id="main-content" tabIndex={-1} className={`shell ${focusMode ? "focusShell" : ""}`}>
+    <main id="main-content" tabIndex={-1} className={`shell ${focusMode ? "focusShell" : ""} ${tab === "dashboard" ? "dashboardShell" : ""}`}>
       {!focusMode && <header className="topbar">
         <div>
           <p className="eyebrow">Local practice engine</p>
@@ -507,6 +514,7 @@ export default function Home() {
                 learningDashboard={homeDashboard}
                 selectedTables={tables}
                 onStartRetention={startRetentionCheck}
+                onOpenRetention={openMemoryTests}
               />
             )}
             {tab === "practice" && (

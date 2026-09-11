@@ -143,6 +143,14 @@ test("phone dashboard contains the heat map without widening the page", async ({
   });
   expect(heatMapDimensions.mapInsidePanel).toBe(true);
   expect(heatMapDimensions.mapScrollWidth).toBeLessThanOrEqual(heatMapDimensions.mapClientWidth + 1);
+
+  await page.setViewportSize({ width: 600, height: 900 });
+  await expect(page.locator(".dashboardTabs")).toBeHidden();
+  const widePhoneDimensions = await page.evaluate(() => ({
+    width: document.documentElement.clientWidth,
+    scrollWidth: document.documentElement.scrollWidth,
+  }));
+  expect(widePhoneDimensions.scrollWidth).toBeLessThanOrEqual(widePhoneDimensions.width);
 });
 
 test("the local app shell registers its service worker", async ({ page }, testInfo) => {

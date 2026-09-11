@@ -87,8 +87,11 @@ test("admin backup and progress export actions are exposed", () => {
 test("the installable shell stays accessible and never caches backend responses", () => {
   assert.match(layoutSource, /manifest: "\/manifest\.webmanifest"/);
   assert.match(layoutSource, /ServiceWorkerRegistration/);
+  assert.match(layoutSource, /width: "device-width"/);
+  assert.match(layoutSource, /viewportFit: "cover"/);
   assert.match(manifestSource, /display: "standalone"/);
   assert.match(serviceWorkerSource, /url\.pathname\.startsWith\("\/backend-api\/"\)/);
+  assert.match(serviceWorkerSource, /recall-forge-shell-v2/);
   assert.match(pageSource, /Skip to main content/);
   assert.match(pageSource, /id="main-content"/);
   assert.match(pageSource, /aria-current/);
@@ -136,4 +139,7 @@ test("long-term recall checks use a distraction-free fixed assessment surface", 
   assert.match(dashboardSource, /Start test/);
   assert.match(pageSource, /aria-expanded=\{settingsOpen\}/);
   assert.match(pageSource, /Memory tests/);
+  assert.match(creatureSource, /memoryTestAction/);
+  assert.match(creatureSource, /Start Memory Test/);
+  assert.match(creatureSource, /onOpenRetention/);
 });

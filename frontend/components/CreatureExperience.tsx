@@ -14,6 +14,7 @@ export function CreatureHome({
   learningDashboard,
   selectedTables,
   onStartRetention,
+  onOpenRetention,
 }: {
   creature: Creature | null;
   onStartPractice: (limit: number) => void;
@@ -23,6 +24,7 @@ export function CreatureHome({
   learningDashboard: Dashboard | null;
   selectedTables: number[];
   onStartRetention: (assessment: RetentionAssessment) => void;
+  onOpenRetention: () => void;
 }) {
   const [openedAt] = useState(() => Date.now());
   if (!creature) return <section className="panel">Loading companion...</section>;
@@ -78,6 +80,20 @@ export function CreatureHome({
         <button type="button" onClick={() => onStartPractice(5)}>Quick Boost<span>5 questions</span></button>
         <button type="button" onClick={() => onStartPractice(10)}>Training Session<span>10 questions</span></button>
         <button type="button" onClick={() => onStartChallenge(20)}>Challenge Round<span>20 questions</span></button>
+        <button
+          type="button"
+          className={`memoryTestAction ${currentRetention?.can_start ? "ready" : ""}`}
+          onClick={() => currentRetention?.can_start ? onStartRetention(currentRetention) : onOpenRetention()}
+        >
+          {currentRetention?.can_start ? "Start Memory Test" : "Memory Test"}
+          <span>
+            {currentRetention?.can_start
+              ? `${currentRetention.next_round_label || "Recall check"} ready`
+              : currentRetention
+                ? "View test schedule"
+                : "Set up or view tests"}
+          </span>
+        </button>
       </div>
 
       <section className={`panel memoryReview ${dueFacts.length > 0 ? "reviewReady" : ""}`}>

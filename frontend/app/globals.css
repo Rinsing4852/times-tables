@@ -45,8 +45,10 @@ button {
   user-select: none;
 }
 
-button:hover {
-  background: var(--blue-dark);
+@media (hover: hover) and (pointer: fine) {
+  button:hover {
+    background: var(--blue-dark);
+  }
 }
 
 button:disabled {
@@ -1251,7 +1253,7 @@ h2 {
 
 .homeActions {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 10px;
 }
 
@@ -1266,6 +1268,24 @@ h2 {
   font-size: 0.9rem;
   font-weight: 700;
   opacity: 0.9;
+}
+
+.homeActions .memoryTestAction {
+  background: #5b3a8d;
+}
+
+.homeActions .memoryTestAction.ready {
+  background: #197f75;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .homeActions .memoryTestAction:hover {
+    background: #472d70;
+  }
+
+  .homeActions .memoryTestAction.ready:hover {
+    background: #12685f;
+  }
 }
 
 .memoryReview {
@@ -1734,6 +1754,22 @@ h2 {
 
 .retentionSteps li {
   padding-left: 4px;
+}
+
+.retentionHelp {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.retentionHelp summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--muted);
+  font-weight: 900;
+}
+
+.retentionHelp[open] summary {
+  margin-bottom: 12px;
 }
 
 .retentionSetup {
@@ -2608,6 +2644,120 @@ h2 {
 
   .creatureInfo h2 {
     font-size: 2rem;
+  }
+}
+
+@media (max-width: 680px) {
+  .dashboardShell .topbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 0 10px;
+  }
+
+  .dashboardShell .topbar h1 {
+    font-size: 1.45rem;
+  }
+
+  .dashboardShell .topbar .eyebrow {
+    margin-bottom: 2px;
+    font-size: 0.7rem;
+  }
+
+  .dashboardShell .settingsToggle {
+    width: 104px;
+    min-height: 44px;
+  }
+
+  .dashboardShell .workspace {
+    gap: 10px;
+  }
+
+  .dashboardShell .utilityBackButton {
+    min-height: 42px;
+    padding: 0 14px;
+  }
+
+  .dashboardTabs {
+    display: none;
+  }
+
+  .dashboardViewSelect {
+    display: grid;
+    gap: 6px;
+    color: var(--muted);
+    font-weight: 900;
+  }
+
+  .dashboardViewSelect select {
+    width: 100%;
+  }
+
+  .dashboardContext {
+    font-size: 0.88rem;
+  }
+
+  .heatMapPanel {
+    width: 100%;
+    min-width: 0;
+    padding: 12px 8px;
+    overflow: hidden;
+  }
+
+  .heatMapPanel .sectionHeader,
+  .heatMapPanel .heatLegend {
+    margin-right: 4px;
+    margin-left: 4px;
+  }
+
+  .heatHeader,
+  .heatCorner,
+  .heatCell {
+    min-height: 0;
+    aspect-ratio: 1;
+  }
+
+  .heatHeader,
+  .heatCorner {
+    overflow: hidden;
+    font-size: 0.64rem;
+    line-height: 1;
+  }
+
+  .heatCell {
+    border-width: 0;
+  }
+
+  .heatMapFrame {
+    width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    border-width: 1px;
+  }
+
+  .heatMap {
+    width: 100%;
+    min-width: 0;
+    grid-template-columns: minmax(22px, 1fr) repeat(var(--heat-columns), minmax(0, 1fr));
+    gap: 1px;
+  }
+
+  .heatLegend {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: hidden;
+  }
+
+  .heatLegend span {
+    min-width: 0;
+    min-height: 32px;
+    padding: 4px;
+    font-size: 0.66rem;
+    overflow-wrap: anywhere;
+  }
+
+  .progressGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 

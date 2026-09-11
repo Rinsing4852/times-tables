@@ -75,8 +75,8 @@ export function DashboardView({
         </select>
       </div>
       <div className="dashboardControls">
-        <span className="quiet">
-          {view === "progress" ? "Learning history across all tables" : view === "retention" ? "Baseline, 4-week and 8-week checks" : `Showing selected tables: ${selectedTables.join(", ")}`}
+        <span className="quiet dashboardContext">
+          {view === "progress" ? "Learning history across all tables" : view === "retention" ? "Baseline, 4-week and 8-week checks" : `Tables shown: ${selectedTables.join(", ")}`}
         </span>
       </div>
       {view === "overview" && (
@@ -163,11 +163,6 @@ function RetentionAssessments({
       <div className="sectionHeader">
         <div><p className="eyebrow">Long-term retention</p><h2>Memory tests</h2></div>
       </div>
-      <ol className="retentionSteps">
-        <li><strong>Set up a baseline test.</strong> Choose the tables, question count and question type.</li>
-        <li><strong>Complete the baseline.</strong> The Start test button appears here and on the learner home screen.</li>
-        <li><strong>Repeat at 4 and 8 weeks.</strong> The same questions measure retained accuracy and recall speed.</li>
-      </ol>
       {canSchedule && !activeAssessment && (
         <div className="retentionSetup">
           <div className="retentionTableChoice">
@@ -200,6 +195,14 @@ function RetentionAssessments({
         </div>
       )}
       {message && <p className="feedback" role="status">{message}</p>}
+      <details className="retentionHelp">
+        <summary>How memory tests work</summary>
+        <ol className="retentionSteps">
+          <li><strong>Set up a baseline test.</strong> Choose the tables, question count and question type.</li>
+          <li><strong>Complete the baseline.</strong> A Start test button appears here and on the learner home screen.</li>
+          <li><strong>Repeat at 4 and 8 weeks.</strong> The same questions measure retained accuracy and recall speed.</li>
+        </ol>
+      </details>
       {assessments.length === 0 ? (
         <p className="quiet">No long-term memory test has been created yet.</p>
       ) : (
@@ -275,10 +278,10 @@ function ParentStats({ dashboard }: { dashboard: Dashboard }) {
           <div key={item.table} className="tableStat"><strong>{item.table}x</strong><span>{item.accuracy === null ? "-" : `${Math.round(item.accuracy * 100)}%`}</span><small>{item.average_time_ms ? formatMs(item.average_time_ms) : "No timing yet"} · {item.secure_facts} secure · {item.due_facts} due</small></div>
         ))}
       </div>
-      <h3>Recent practice history</h3>
+      <h3>Latest practice</h3>
       {dashboard.recent_history.length === 0 ? <p className="quiet">No recent answers yet.</p> : (
         <ul className="plainList">
-          {dashboard.recent_history.map((item, index) => <li key={`${item.prompt}-${index}`}>{item.prompt}: {item.is_correct ? "correct" : "reviewed"} · {formatMs(item.response_time_ms)} · {item.mode}</li>)}
+          {dashboard.recent_history.slice(0, 8).map((item, index) => <li key={`${item.prompt}-${index}`}>{item.prompt}: {item.is_correct ? "correct" : "reviewed"} · {formatMs(item.response_time_ms)} · {item.mode}</li>)}
         </ul>
       )}
       <h3>Progress over time</h3>

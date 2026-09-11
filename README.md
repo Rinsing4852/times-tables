@@ -1,6 +1,6 @@
 # Recall Forge
 
-Recall Forge 0.10.2 is a self-hosted times tables practice app for local use. It is intentionally focused: authenticated local profiles, adaptive practice, scheduled review, long-term retention checks, smart training quests, challenge mode, heat maps, SQLite, no external accounts, no analytics, and no AI API. It also includes a light companion creature theme where practice gives the creature energy and XP while the learning engine stays focused on recall and spaced practice. Each species has a distinct five-stage evolution path and a dedicated transformation moment, but remains a calm maths companion rather than a needy care system.
+Recall Forge 0.10.3 is a self-hosted times tables practice app for local use. It is intentionally focused: authenticated local profiles, adaptive practice, scheduled review, long-term retention checks, smart training quests, challenge mode, heat maps, SQLite, no external accounts, no analytics, and no AI API. It also includes a light companion creature theme where practice gives the creature energy and XP while the learning engine stays focused on recall and spaced practice. Each species has a distinct five-stage evolution path and a dedicated transformation moment, but remains a calm maths companion rather than a needy care system.
 
 ## Stack
 
@@ -129,8 +129,8 @@ To make the stack manageable through Dockge:
 For controlled updates, replace `latest` on both `image:` lines with the same version, for example:
 
 ```yaml
-image: ghcr.io/rinsing4852/recall-forge-backend:0.10.2
-image: ghcr.io/rinsing4852/recall-forge-frontend:0.10.2
+image: ghcr.io/rinsing4852/recall-forge-backend:0.10.3
+image: ghcr.io/rinsing4852/recall-forge-frontend:0.10.3
 ```
 
 Keep both services on the same version. Take an admin database backup before rolling back across versions that include schema changes.

@@ -86,6 +86,12 @@ test("all primary screens fit a phone without horizontal scrolling", async ({ pa
   await expect(page.getByRole("heading", { name: "Your reviews are planned" })).toBeVisible();
   await auditScreen(page, testInfo, "03-home");
 
+  await page.getByRole("button", { name: /Memory Test/ }).click();
+  await expect(page.getByRole("heading", { name: "Memory tests" })).toBeVisible();
+  await expect(page.getByLabel("Dashboard view", { exact: true })).toHaveValue("retention");
+  await auditScreen(page, testInfo, "03a-memory-tests");
+  await page.getByRole("button", { name: "Back home", exact: true }).click();
+
   await page.locator(".collapsiblePanel summary").click();
   await auditScreen(page, testInfo, "04-table-selection");
   await page.locator(".collapsiblePanel summary").click();
