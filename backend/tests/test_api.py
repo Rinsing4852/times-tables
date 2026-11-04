@@ -9,7 +9,16 @@ from sqlalchemy.orm import sessionmaker
 from app.adaptive import question_for_fact
 from app.database import Base, get_db
 from app.main import _login_failures, app
-from app.models import Fact, LearningSession, LearningSessionQuestion, RetentionAssessment, RetentionAssessmentQuestion, User
+from app.models import (
+    Fact,
+    FactStat,
+    LearningSession,
+    LearningSessionQuestion,
+    QuestionAttempt,
+    RetentionAssessment,
+    RetentionAssessmentQuestion,
+    User,
+)
 from app.seed import seed_facts
 
 
@@ -114,6 +123,7 @@ def test_admin_required_tables_are_locked_into_child_sessions(api) -> None:
     )
     assert updated.status_code == 200
     assert updated.json()["required_tables"] == [4, 7]
+    assert updated.json()["selected_tables"] == [4, 7]
 
     client.post("/auth/logout")
     login(client, child["id"])
@@ -122,14 +132,36 @@ def test_admin_required_tables_are_locked_into_child_sessions(api) -> None:
         json={"tables": []},
     ).status_code == 403
 
+    selected = client.put(
+        f"/users/{child['id']}/selected-tables",
+        json={"tables": [2, 4]},
+    )
+    assert selected.status_code == 200
+    assert selected.json()["selected_tables"] == [2, 4, 7]
+    assert client.get("/auth/me").json()["selected_tables"] == [2, 4, 7]
+
     started = client.post(
         "/practice/start",
-        json={"user_id": child["id"], "tables": [2], "question_mode": "mixed", "question_count": 1},
+        json={"user_id": child["id"], "tables": [2, 4, 7], "question_mode": "mixed", "question_count": 1},
     )
     assert started.status_code == 200
     with testing_session() as db:
         session = db.get(LearningSession, started.json()["session_id"])
         assert session.selected_tables == "2,4,7"
+
+
+def test_learner_cannot_change_another_profiles_table_choices(api) -> None:
+    client, _ = api
+    admin = create_admin(client)
+    login(client, admin["id"], "246824")
+    first = client.post(f"/admin/{admin['id']}/users", json={"name": "First learner"}).json()
+    second = client.post(f"/admin/{admin['id']}/users", json={"name": "Second learner"}).json()
+
+    client.post("/auth/logout")
+    login(client, first["id"])
+    response = client.put(f"/users/{second['id']}/selected-tables", json={"tables": [8]})
+
+    assert response.status_code == 403
 
 
 def test_practice_session_awards_once_for_an_issued_question(api) -> None:
@@ -311,6 +343,92 @@ def test_challenge_avoids_repeating_facts_while_pool_is_available(api) -> None:
     assert len({question["fact_id"] for question in started["questions"]}) == 10
 
 
+def test_challenge_answers_are_saved_and_can_resume(api) -> None:
+    client, _ = api
+    admin = create_admin(client)
+    login(client, admin["id"], "246824")
+    started = client.post(
+        "/challenge/start",
+        json={"user_id": admin["id"], "tables": [4], "question_mode": "mixed", "question_count": 2},
+    ).json()
+    first = started["questions"][0]
+    saved = client.post(
+        "/challenge/answer",
+        json={"session_id": started["session_id"], "question_id": first["question_id"], "answer": "12", "response_time_ms": 1400},
+    )
+    assert saved.status_code == 200
+    resumed = client.get(f"/challenge/{started['session_id']}").json()
+    assert resumed["saved_answers"] == [
+        {"question_id": first["question_id"], "answer": "12", "response_time_ms": 1400}
+    ]
+    second = started["questions"][1]
+    client.post(
+        "/challenge/answer",
+        json={"session_id": started["session_id"], "question_id": second["question_id"], "answer": "16", "response_time_ms": 1500},
+    )
+    submitted = client.post(
+        "/challenge/submit",
+        json={
+            "session_id": started["session_id"],
+            "answers": [
+                {"question_id": first["question_id"], "answer": "12", "response_time_ms": 1400},
+                {"question_id": second["question_id"], "answer": "16", "response_time_ms": 1500},
+            ],
+        },
+    )
+    assert submitted.status_code == 200
+    assert submitted.json()["question_count"] == 2
+
+
+def test_question_mode_is_saved_per_profile(api) -> None:
+    client, _ = api
+    admin = create_admin(client)
+    login(client, admin["id"], "246824")
+    updated = client.put(f"/users/{admin['id']}/question-mode", json={"question_mode": "division"})
+    assert updated.status_code == 200
+    assert updated.json()["question_mode"] == "division"
+    assert client.get("/auth/me").json()["question_mode"] == "division"
+
+
+def test_dashboard_speed_uses_recent_median_and_has_weekly_summary(api) -> None:
+    client, testing_session = api
+    admin = create_admin(client)
+    login(client, admin["id"], "246824")
+    with testing_session() as db:
+        fact = db.query(Fact).filter(Fact.a == 4, Fact.b == 7).one()
+        db.add(
+            FactStat(
+                user_id=admin["id"],
+                fact_id=fact.id,
+                first_attempt_correct=3,
+                first_attempt_total=3,
+                first_attempt_response_time_ms=903000,
+                first_attempt_response_count=3,
+            )
+        )
+        for response_time_ms in (1000, 2000, 900000):
+            db.add(
+                QuestionAttempt(
+                    user_id=admin["id"],
+                    fact_id=fact.id,
+                    question_type="multiply_ab",
+                    prompt="4 x 7 = ?",
+                    answer_given="28",
+                    correct_answer=28,
+                    is_correct=True,
+                    attempt_number=1,
+                    response_time_ms=response_time_ms,
+                    mode="practice",
+                )
+            )
+        db.commit()
+    dashboard = client.get(f"/dashboard/{admin['id']}").json()
+    cell = next(item for item in dashboard["cells"] if item["a"] == 4 and item["b"] == 7)
+    assert cell["average_time_ms"] == 2000
+    assert dashboard["weekly_summary"]["answers"] == 3
+    assert dashboard["weekly_summary"]["median_time_ms"] == 2000
+
+
 def test_retention_check_repeats_the_fixed_test_at_four_and_eight_weeks(api) -> None:
     client, testing_session = api
     admin = create_admin(client)
@@ -431,6 +549,60 @@ def test_only_an_admin_can_schedule_a_retention_check(api) -> None:
     )
     assert response.status_code == 403
     assert client.get(f"/users/{admin['id']}/retention-assessments").status_code == 403
+
+
+def test_learner_can_complete_an_admin_assigned_retention_check(api) -> None:
+    client, testing_session = api
+    admin = create_admin(client)
+    login(client, admin["id"], "246824")
+    learner = client.post(f"/admin/{admin['id']}/users", json={"name": "Recall Learner"}).json()
+
+    created_response = client.post(
+        "/retention-assessments",
+        json={"user_id": learner["id"], "tables": [4], "question_count": 5, "question_mode": "multiply"},
+    )
+    assert created_response.status_code == 200
+    assessment_id = created_response.json()["assessment_id"]
+
+    client.post("/auth/logout")
+    login(client, learner["id"])
+    listed = client.get(f"/users/{learner['id']}/retention-assessments")
+    assert listed.status_code == 200
+    assert listed.json()["assessments"][0]["can_start"] is True
+
+    started_response = client.post(f"/retention-assessments/{assessment_id}/start")
+    assert started_response.status_code == 200
+    started = started_response.json()
+    answers = []
+    with testing_session() as db:
+        for question in started["questions"]:
+            record = db.get(RetentionAssessmentQuestion, question["question_id"])
+            fact = db.get(Fact, record.fact_id)
+            _, answer = question_for_fact(fact, record.question_type)
+            answers.append({"question_id": question["question_id"], "answer": str(answer), "response_time_ms": 1500})
+
+    saved = client.post(
+        f"/retention-assessments/{assessment_id}/answer",
+        json={"round_id": started["round_id"], **answers[0]},
+    )
+    assert saved.status_code == 200
+    resumed = client.post(f"/retention-assessments/{assessment_id}/start").json()
+    assert resumed["round_id"] == started["round_id"]
+    assert resumed["saved_answers"] == [answers[0]]
+    for answer in answers[1:]:
+        assert client.post(
+            f"/retention-assessments/{assessment_id}/answer",
+            json={"round_id": started["round_id"], **answer},
+        ).status_code == 200
+
+    submitted = client.post(
+        f"/retention-assessments/{assessment_id}/submit",
+        json={"round_id": started["round_id"], "answers": answers},
+    )
+    assert submitted.status_code == 200
+    result = submitted.json()["assessment"]
+    assert result["rounds"][0]["accuracy"] == 1
+    assert result["status"] == "week4_pending"
 
 
 def test_login_is_rate_limited_after_repeated_failures(api) -> None:

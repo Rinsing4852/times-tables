@@ -14,6 +14,7 @@ from collections import defaultdict
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from random import choice
+from statistics import median
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -68,13 +69,14 @@ from .learning import (
     recent_attempts_by_fact,
     record_stat,
 )
-from .profiles import clean_tables, effective_tables, parse_required_tables, reset_user_progress, user_payload
+from .profiles import clean_tables, effective_tables, parse_required_tables, parse_selected_tables, reset_user_progress, user_payload
 from .quests import APP_VERSION, ensure_available_quests, quest_payload, quest_questions
 from .reports import evaluation_csv, retention_summary
 from .retention import assessment_payload, build_question_specs
 from .scheduler import choose_practice_fact, learning_state, review_is_due
 from .schemas import (
     ChallengeStart,
+    ChallengeAnswerSave,
     ChallengeSubmit,
     CreatureCosmeticUpdate,
     CreatureUpdate,
@@ -82,8 +84,11 @@ from .schemas import (
     PracticeAnswer,
     PracticeQuestionRequest,
     PracticeStart,
+    QuestionModeUpdate,
     RequiredTablesUpdate,
+    SelectedTablesUpdate,
     RetentionAssessmentCreate,
+    RetentionAnswerSave,
     RetentionAssessmentSubmit,
     TablesRequest,
     UserAdminUpdate,
@@ -247,6 +252,29 @@ def learning_question_payload(question: LearningSessionQuestion) -> dict:
     }
 
 
+def next_focus_recommendation(db: Session, user_id: int, limit: int = 2) -> dict:
+    stats = list(
+        db.scalars(
+            select(FactStat).where(FactStat.user_id == user_id, FactStat.first_attempt_total > 0)
+        ).all()
+    )
+    if not stats:
+        return {"facts": [], "message": "Keep practising to discover the next useful facts to strengthen."}
+    facts_by_id = {
+        fact.id: fact for fact in db.scalars(select(Fact).where(Fact.id.in_([stat.fact_id for stat in stats]))).all()
+    }
+    recent_by_fact_id = recent_attempts_by_fact(db, user_id)
+    ranked = sorted(
+        stats,
+        key=lambda stat: priority_score(stat, recent_attempts=recent_by_fact_id.get(stat.fact_id, [])),
+        reverse=True,
+    )
+    labels = [f"{facts_by_id[stat.fact_id].a}×{facts_by_id[stat.fact_id].b}" for stat in ranked if stat.fact_id in facts_by_id][:limit]
+    if not labels:
+        return {"facts": [], "message": "Keep building a steady practice rhythm."}
+    return {"facts": labels, "message": f"A useful next step is to strengthen {' and '.join(labels)}."}
+
+
 def login_failure_key(request: Request, user_id: int) -> tuple[str, int]:
     return (request.client.host if request.client else "unknown", user_id)
 
@@ -329,6 +357,39 @@ def list_users(db: Session = Depends(get_db)) -> list[dict]:
     return [user_payload(user) for user in users]
 
 
+@app.put("/users/{user_id}/selected-tables")
+def update_selected_tables(
+    user_id: int,
+    payload: SelectedTablesUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(authenticated_user),
+) -> dict:
+    authorize_profile(current_user, user_id)
+    user = get_user(db, user_id)
+    invalid = [table for table in payload.tables if table < 2 or table > 12]
+    if invalid:
+        raise HTTPException(status_code=400, detail="Selected tables must be between 2 and 12")
+    user.selected_tables = json.dumps(effective_tables(user, payload.tables))
+    db.commit()
+    db.refresh(user)
+    return user_payload(user)
+
+
+@app.put("/users/{user_id}/question-mode")
+def update_question_mode(
+    user_id: int,
+    payload: QuestionModeUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(authenticated_user),
+) -> dict:
+    authorize_profile(current_user, user_id)
+    user = get_user(db, user_id)
+    user.question_mode = payload.question_mode
+    db.commit()
+    db.refresh(user)
+    return user_payload(user)
+
+
 @app.post("/users")
 def create_user(payload: UserCreate, request: Request, db: Session = Depends(get_db)) -> dict:
     has_users = db.scalar(select(User.id).limit(1)) is not None
@@ -406,7 +467,10 @@ def admin_update_required_tables(
     invalid = [table for table in payload.tables if table < 2 or table > 12]
     if invalid:
         raise HTTPException(status_code=400, detail="Required tables must be between 2 and 12")
-    user.required_tables = json.dumps(clean_tables(payload.tables))
+    required_tables = clean_tables(payload.tables)
+    user.required_tables = json.dumps(required_tables)
+    if required_tables:
+        user.selected_tables = json.dumps(clean_tables(parse_selected_tables(user) + required_tables))
     db.commit()
     db.refresh(user)
     return user_payload(user)
@@ -768,6 +832,7 @@ def answer_practice_question(payload: PracticeAnswer, db: Session = Depends(get_
     question_complete = is_correct or attempt_number == 2
     creature = None
     quest_result = None
+    next_recommendation = None
     if question_complete:
         question.completed = True
         learning_session.completed_questions += 1
@@ -779,6 +844,7 @@ def answer_practice_question(payload: PracticeAnswer, db: Session = Depends(get_
     if question_complete and learning_session.completed_questions >= learning_session.expected_questions:
         user = get_user(db, learning_session.user_id)
         creature = award_learning_session(db, learning_session, user)
+        next_recommendation = next_focus_recommendation(db, learning_session.user_id)
         if learning_session.quest_id:
             quest = db.get(TrainingQuest, learning_session.quest_id)
             practised_fact_ids = list(
@@ -793,7 +859,8 @@ def answer_practice_question(payload: PracticeAnswer, db: Session = Depends(get_
                 "quest": quest_payload(quest) if quest else None,
                 "creature": creature,
                 "facts_practised": [f"{item.a} x {item.b}" for item in facts[:6]],
-                "learning_message": "You gave these facts focused practice. That helps them become easier to remember next time.",
+                "learning_message": next_recommendation["message"],
+                "next_recommendation": next_recommendation,
             }
     db.commit()
     return {
@@ -807,6 +874,7 @@ def answer_practice_question(payload: PracticeAnswer, db: Session = Depends(get_
         "creature": creature,
         "quest_result": quest_result,
         "learning_event": learning_event,
+        "next_recommendation": next_recommendation,
     }
 
 
@@ -857,6 +925,67 @@ def start_challenge(payload: ChallengeStart, db: Session = Depends(get_db), curr
     return {"session_id": learning_session.id, "questions": [learning_question_payload(question) for question in questions]}
 
 
+@app.get("/challenge/{session_id}")
+def resume_challenge(session_id: str, db: Session = Depends(get_db), current_user: User = Depends(authenticated_user)) -> dict:
+    learning_session = get_learning_session(db, session_id, current_user)
+    if learning_session.mode != "challenge" or learning_session.status != "active":
+        raise HTTPException(status_code=409, detail="Challenge is not active")
+    questions = list(
+        db.scalars(
+            select(LearningSessionQuestion)
+            .where(LearningSessionQuestion.session_id == learning_session.id)
+            .order_by(LearningSessionQuestion.position)
+        ).all()
+    )
+    saved_answers = [
+        {
+            "question_id": question.id,
+            "answer": question.answer_given,
+            "response_time_ms": question.response_time_ms,
+        }
+        for question in questions
+        if question.answer_given is not None and question.response_time_ms is not None
+    ]
+    return {
+        "session_id": learning_session.id,
+        "questions": [learning_question_payload(question) for question in questions],
+        "saved_answers": saved_answers,
+    }
+
+
+@app.post("/challenge/answer")
+def save_challenge_answer(
+    payload: ChallengeAnswerSave,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(authenticated_user),
+) -> dict:
+    learning_session = get_learning_session(db, payload.session_id, current_user)
+    if learning_session.mode != "challenge" or learning_session.status != "active":
+        raise HTTPException(status_code=409, detail="Challenge is not active")
+    questions = list(
+        db.scalars(
+            select(LearningSessionQuestion)
+            .where(LearningSessionQuestion.session_id == learning_session.id)
+            .order_by(LearningSessionQuestion.position)
+        ).all()
+    )
+    question = next((item for item in questions if item.id == payload.question_id), None)
+    if not question:
+        raise HTTPException(status_code=400, detail="Challenge question does not match this session")
+    first_unsaved = next((item for item in questions if item.answer_given is None), None)
+    if question.answer_given is not None:
+        if question.answer_given != payload.answer or question.response_time_ms != payload.response_time_ms:
+            raise HTTPException(status_code=409, detail="This challenge answer is already saved")
+    elif not first_unsaved or first_unsaved.id != question.id:
+        raise HTTPException(status_code=409, detail="Challenge answers must be saved in order")
+    else:
+        question.answer_given = payload.answer
+        question.response_time_ms = payload.response_time_ms
+        db.commit()
+    saved_count = sum(item.answer_given is not None for item in questions)
+    return {"saved": True, "saved_count": saved_count, "question_count": len(questions)}
+
+
 @app.post("/challenge/submit")
 def submit_challenge(payload: ChallengeSubmit, db: Session = Depends(get_db), current_user: User = Depends(authenticated_user)) -> dict:
     learning_session = get_learning_session(db, payload.session_id, current_user)
@@ -871,6 +1000,13 @@ def submit_challenge(payload: ChallengeSubmit, db: Session = Depends(get_db), cu
     )
     if len(payload.answers) != learning_session.expected_questions or [answer.question_id for answer in payload.answers] != [question.id for question in questions]:
         raise HTTPException(status_code=400, detail="Challenge answers do not match the issued questions")
+    for answer, question in zip(payload.answers, questions):
+        if question.answer_given is not None and (
+            question.answer_given != answer.answer or question.response_time_ms != answer.response_time_ms
+        ):
+            raise HTTPException(status_code=409, detail="Submitted answers do not match the saved challenge")
+        question.answer_given = answer.answer
+        question.response_time_ms = answer.response_time_ms
     selected_tables = learning_session.selected_tables
     total_time = sum(answer.response_time_ms for answer in payload.answers)
     session = ChallengeSession(
@@ -888,13 +1024,14 @@ def submit_challenge(payload: ChallengeSubmit, db: Session = Depends(get_db), cu
     practiced_weak_fact = False
     improved_fact_accuracy = False
     practiced_division = False
+    recent_by_fact_id = recent_attempts_by_fact(db, learning_session.user_id)
     for answer, question in zip(payload.answers, questions):
         fact = db.get(Fact, question.fact_id)
         if not fact:
             raise HTTPException(status_code=404, detail="Fact not found")
         prompt, correct_answer = question_for_fact(fact, question.question_type)
         is_correct = normalize_answer(answer.answer) == correct_answer
-        recent_for_fact = recent_attempts_by_fact(db, learning_session.user_id).get(fact.id, [])
+        recent_for_fact = recent_by_fact_id.get(fact.id, [])
         correct_count += int(is_correct)
         first_attempt_correct += int(is_correct)
         stat = get_or_create_stat(db, learning_session.user_id, fact.id)
@@ -912,27 +1049,27 @@ def submit_challenge(payload: ChallengeSubmit, db: Session = Depends(get_db), cu
                 response_time_ms=answer.response_time_ms,
             )
         )
-        db.add(
-            QuestionAttempt(
-                user_id=learning_session.user_id,
-                fact_id=fact.id,
-                question_type=question.question_type,
-                prompt=prompt,
-                answer_given=answer.answer,
-                correct_answer=correct_answer,
-                is_correct=is_correct,
-                attempt_number=1,
-                response_time_ms=answer.response_time_ms,
-                mode="challenge",
-                was_due_review=was_due_review,
-                learning_state_before=state_before,
-            )
+        attempt = QuestionAttempt(
+            user_id=learning_session.user_id,
+            fact_id=fact.id,
+            question_type=question.question_type,
+            prompt=prompt,
+            answer_given=answer.answer,
+            correct_answer=correct_answer,
+            is_correct=is_correct,
+            attempt_number=1,
+            response_time_ms=answer.response_time_ms,
+            mode="challenge",
+            was_due_review=was_due_review,
+            learning_state_before=state_before,
         )
+        db.add(attempt)
         learning_event = learning_event_for_stat(stat, is_correct, question.question_type, 1, recent_for_fact)
         practiced_weak_fact = practiced_weak_fact or learning_event["practiced_weak_fact"]
         improved_fact_accuracy = improved_fact_accuracy or learning_event["improved_fact_accuracy"]
         practiced_division = practiced_division or learning_event["practiced_division"]
         record_stat(stat, is_correct, 1, answer.response_time_ms, recent_for_fact)
+        recent_by_fact_id[fact.id] = [attempt, *recent_for_fact][:10]
         question.attempts = 1
         question.completed = True
         results.append(
@@ -999,6 +1136,7 @@ def submit_challenge(payload: ChallengeSubmit, db: Session = Depends(get_db), cu
             "improved_fact_accuracy": improved_fact_accuracy,
             "practiced_division": practiced_division,
         },
+        "next_recommendation": next_focus_recommendation(db, learning_session.user_id),
     }
 
 
@@ -1112,7 +1250,65 @@ def start_retention_assessment(
             }
             for question in questions
         ],
+        "saved_answers": [
+            {
+                "question_id": attempt.question_id,
+                "answer": attempt.answer_given,
+                "response_time_ms": attempt.response_time_ms,
+            }
+            for attempt in sorted(
+                round_record.attempts,
+                key=lambda item: next(
+                    question.position for question in questions if question.id == item.question_id
+                ),
+            )
+        ],
     }
+
+
+@app.post("/retention-assessments/{assessment_id}/answer")
+def save_retention_answer(
+    assessment_id: int,
+    payload: RetentionAnswerSave,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(authenticated_user),
+) -> dict:
+    assessment = get_retention_assessment(db, assessment_id, current_user)
+    round_record = db.get(RetentionAssessmentRound, payload.round_id)
+    if not round_record or round_record.assessment_id != assessment.id:
+        raise HTTPException(status_code=400, detail="Retention-check round does not match this assessment")
+    if round_record.status != "active":
+        raise HTTPException(status_code=409, detail="This retention-check round is not active")
+
+    questions = sorted(assessment.questions, key=lambda item: item.position)
+    question = next((item for item in questions if item.id == payload.question_id), None)
+    if not question:
+        raise HTTPException(status_code=400, detail="Question does not belong to this retention check")
+    saved_by_question = {attempt.question_id: attempt for attempt in round_record.attempts}
+    existing = saved_by_question.get(question.id)
+    if existing:
+        if existing.answer_given == payload.answer and existing.response_time_ms == payload.response_time_ms:
+            return {"saved": True, "answers_saved": len(saved_by_question)}
+        raise HTTPException(status_code=409, detail="This answer has already been saved")
+    expected_position = len(saved_by_question)
+    if question.position != expected_position:
+        raise HTTPException(status_code=409, detail="Answers must be saved in question order")
+
+    fact = db.get(Fact, question.fact_id)
+    if not fact:
+        raise HTTPException(status_code=404, detail="Fact not found")
+    _, correct_answer = question_for_fact(fact, question.question_type)
+    round_record.attempts.append(
+        RetentionAssessmentAttempt(
+            question_id=question.id,
+            answer_given=payload.answer,
+            correct_answer=correct_answer,
+            is_correct=normalize_answer(payload.answer) == correct_answer,
+            response_time_ms=payload.response_time_ms,
+        )
+    )
+    db.commit()
+    return {"saved": True, "answers_saved": expected_position + 1}
 
 
 @app.post("/retention-assessments/{assessment_id}/submit")
@@ -1139,23 +1335,28 @@ def submit_retention_assessment(
     correct_count = 0
     total_time_ms = 0
     recent_by_fact_id = recent_attempts_by_fact(db, assessment.user_id)
+    saved_by_question = {attempt.question_id: attempt for attempt in round_record.attempts}
     for answer, question in zip(payload.answers, questions):
         fact = db.get(Fact, question.fact_id)
         if not fact:
             raise HTTPException(status_code=404, detail="Fact not found")
         _, correct_answer = question_for_fact(fact, question.question_type)
-        is_correct = normalize_answer(answer.answer) == correct_answer
-        correct_count += int(is_correct)
-        total_time_ms += answer.response_time_ms
-        round_record.attempts.append(
-            RetentionAssessmentAttempt(
+        saved = saved_by_question.get(question.id)
+        if saved:
+            if saved.answer_given != answer.answer or saved.response_time_ms != answer.response_time_ms:
+                raise HTTPException(status_code=409, detail="Submitted answers do not match the saved retention check")
+        else:
+            saved = RetentionAssessmentAttempt(
                 question_id=question.id,
                 answer_given=answer.answer,
                 correct_answer=correct_answer,
-                is_correct=is_correct,
+                is_correct=normalize_answer(answer.answer) == correct_answer,
                 response_time_ms=answer.response_time_ms,
             )
-        )
+            round_record.attempts.append(saved)
+        is_correct = saved.is_correct
+        correct_count += int(is_correct)
+        total_time_ms += saved.response_time_ms
         stat = get_or_create_stat(db, assessment.user_id, fact.id)
         state_before = learning_state(stat)
         was_due_review = review_is_due(stat, now)
@@ -1165,17 +1366,17 @@ def submit_retention_assessment(
                 fact_id=fact.id,
                 question_type=question.question_type,
                 prompt=question.prompt,
-                answer_given=answer.answer,
+                answer_given=saved.answer_given,
                 correct_answer=correct_answer,
                 is_correct=is_correct,
                 attempt_number=1,
-                response_time_ms=answer.response_time_ms,
+                response_time_ms=saved.response_time_ms,
                 mode="retention",
                 was_due_review=was_due_review,
                 learning_state_before=state_before,
             )
         )
-        record_stat(stat, is_correct, 1, answer.response_time_ms, recent_by_fact_id.get(fact.id, []), now)
+        record_stat(stat, is_correct, 1, saved.response_time_ms, recent_by_fact_id.get(fact.id, []), now)
 
     round_record.status = "completed"
     round_record.completed_at = now
@@ -1199,7 +1400,11 @@ def submit_retention_assessment(
     user.last_practised_at = now
     db.commit()
     db.refresh(assessment)
-    return {"assessment": assessment_payload(assessment), "completed_round_key": round_record.round_key}
+    return {
+        "assessment": assessment_payload(assessment),
+        "completed_round_key": round_record.round_key,
+        "next_recommendation": next_focus_recommendation(db, assessment.user_id),
+    }
 
 
 @app.get("/dashboard/{user_id}")
@@ -1222,7 +1427,14 @@ def dashboard(user_id: int, db: Session = Depends(get_db), current_user: User = 
             incorrect = max(stat.first_attempt_total - stat.first_attempt_correct, 0)
             second_correct = stat.second_attempt_correct
             second_total = stat.second_attempt_total
-            if stat.first_attempt_response_count:
+            recent_first_times = [
+                attempt.response_time_ms
+                for attempt in recent_by_fact_id.get(fact.id, [])
+                if attempt.attempt_number == 1
+            ][:10]
+            if recent_first_times:
+                avg_ms = median(recent_first_times)
+            elif stat.first_attempt_response_count:
                 avg_ms = stat.first_attempt_response_time_ms / stat.first_attempt_response_count
             elif stat.response_count:
                 avg_ms = stat.total_response_time_ms / stat.response_count
@@ -1268,23 +1480,13 @@ def dashboard(user_id: int, db: Session = Depends(get_db), current_user: User = 
         table_cells = [cell for cell in cells if cell["a"] == table]
         correct = sum(cell["correct_count"] for cell in table_cells)
         incorrect = sum(cell["incorrect_count"] for cell in table_cells)
-        table_fact_ids = {cell["fact_id"] for cell in table_cells}
-        speed_total = sum(
-            stat.first_attempt_response_time_ms
-            for stat in stats
-            if stat.fact_id in table_fact_ids and stat.first_attempt_response_count
-        )
-        speed_count = sum(
-            stat.first_attempt_response_count
-            for stat in stats
-            if stat.fact_id in table_fact_ids and stat.first_attempt_response_count
-        )
+        table_speeds = [cell["average_time_ms"] for cell in table_cells if cell["average_time_ms"] is not None]
         total = correct + incorrect
         table_stats.append(
             {
                 "table": table,
                 "accuracy": round(correct / total, 3) if total else None,
-                "average_time_ms": round(speed_total / speed_count) if speed_count else None,
+                "average_time_ms": round(median(table_speeds)) if table_speeds else None,
                 "answers": total,
                 "secure_facts": sum(1 for cell in table_cells if cell["learning_state"] == "secure"),
                 "due_facts": sum(
@@ -1338,6 +1540,40 @@ def dashboard(user_id: int, db: Session = Depends(get_db), current_user: User = 
         }
         for day, values in sorted(daily.items())[-30:]
     ]
+    today = local_date(datetime.now(timezone.utc))
+    week_start = today - timedelta(days=today.weekday())
+    week_attempts = [attempt for attempt in progress_attempts if local_date(attempt.created_at) >= week_start]
+    week_correct = sum(int(attempt.is_correct) for attempt in week_attempts)
+    week_fact_ids = {attempt.fact_id for attempt in week_attempts}
+    fact_labels = {fact.id: f"{fact.a}x{fact.b}" for fact in facts}
+    week_focus = [cell["label"] for cell in weaknesses if cell["fact_id"] in week_fact_ids][:3]
+    if not week_focus:
+        week_focus = [cell["label"] for cell in weaknesses[:3]]
+    secured_this_week = sum(
+        1
+        for fact_id in week_fact_ids
+        if learning_state(stats_by_fact_id.get(fact_id)) == "secure"
+        and any(
+            attempt.fact_id == fact_id and attempt.learning_state_before != "secure"
+            for attempt in week_attempts
+        )
+    )
+    weekly_summary = {
+        "practice_days": len({local_date(attempt.created_at) for attempt in week_attempts}),
+        "answers": len(week_attempts),
+        "correct": week_correct,
+        "accuracy": round(week_correct / len(week_attempts), 3) if week_attempts else None,
+        "median_time_ms": round(median([attempt.response_time_ms for attempt in week_attempts])) if week_attempts else None,
+        "facts_practised": len(week_fact_ids),
+        "facts_secured": secured_this_week,
+        "focus_facts": week_focus,
+        "focus_message": (
+            f"A useful next focus is {', '.join(week_focus)}."
+            if week_focus
+            else "Complete a short practice to reveal the next useful focus."
+        ),
+        "fact_labels": [fact_labels[fact_id] for fact_id in sorted(week_fact_ids) if fact_id in fact_labels],
+    }
     due_review_attempts = list(
         db.scalars(
             select(QuestionAttempt).where(
@@ -1358,6 +1594,7 @@ def dashboard(user_id: int, db: Session = Depends(get_db), current_user: User = 
         "improving": improving,
         "recent_history": recent_history,
         "progress_over_time": progress_over_time,
+        "weekly_summary": weekly_summary,
         "retention": retention_summary(facts, stats_by_fact_id, due_review_attempts),
         "retention_assessments": [
             assessment_payload(item) for item in retention_assessments_for_user(db, user_id)[:5]

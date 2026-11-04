@@ -3,7 +3,7 @@ import pytest
 
 from app.learning import learning_event_for_stat, record_stat
 from app.models import FactStat, QuestionAttempt, User
-from app.profiles import clean_tables, effective_tables, parse_required_tables
+from app.profiles import clean_tables, effective_tables, parse_required_tables, parse_selected_tables
 
 
 def test_table_policy_merges_required_tables_and_rejects_empty_selection() -> None:
@@ -11,6 +11,7 @@ def test_table_policy_merges_required_tables_and_rejects_empty_selection() -> No
 
     assert clean_tables([12, 2, 2, 1, 13]) == [2, 12]
     assert parse_required_tables(user) == [4, 7]
+    assert parse_selected_tables(User(selected_tables="[3, 6, false, 14]")) == [3, 6]
     assert effective_tables(user, [2, 4]) == [2, 4, 7]
 
     with pytest.raises(HTTPException, match="Select at least one table"):

@@ -34,6 +34,14 @@ class RequiredTablesUpdate(BaseModel):
     tables: list[int] = Field(default_factory=list, max_length=11)
 
 
+class SelectedTablesUpdate(BaseModel):
+    tables: list[int] = Field(min_length=1, max_length=11)
+
+
+class QuestionModeUpdate(BaseModel):
+    question_mode: QuestionMode
+
+
 class UserOut(BaseModel):
     id: int
     name: str
@@ -78,6 +86,14 @@ class ChallengeAnswer(BaseModel):
     question_id: int
     answer: str = Field(max_length=32)
     response_time_ms: int = Field(ge=0, le=3_600_000)
+
+
+class ChallengeAnswerSave(ChallengeAnswer):
+    session_id: str = Field(min_length=16, max_length=64)
+
+
+class RetentionAnswerSave(ChallengeAnswer):
+    round_id: int
 
 
 class ChallengeSubmit(BaseModel):

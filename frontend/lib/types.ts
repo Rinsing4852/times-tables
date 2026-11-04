@@ -4,6 +4,8 @@ export type User = {
   is_admin: boolean;
   password_set: boolean;
   required_tables: number[];
+  selected_tables: number[];
+  question_mode: QuestionMode;
   creature_type?: string;
   creature_name?: string;
 };
@@ -27,6 +29,10 @@ export type Creature = {
   next_stage: string | null;
   next_stage_level: number | null;
   xp_to_next_stage: number;
+  growth_rank: number;
+  growth_title: string;
+  next_growth_milestone_level: number;
+  xp_to_next_growth_milestone: number;
   xp_progress: number;
   status_message: string;
   energy_gained: number;
@@ -69,7 +75,10 @@ export type QuestCompleteResult = {
   creature: Creature;
   facts_practised: string[];
   learning_message: string;
+  next_recommendation: LearningRecommendation;
 };
+
+export type LearningRecommendation = { facts: string[]; message: string };
 
 export type DashboardCell = {
   fact_id: number;
@@ -102,6 +111,18 @@ export type Dashboard = {
   improving: DashboardCell[];
   recent_history: { prompt: string; is_correct: boolean; response_time_ms: number; mode: string; created_at: string }[];
   progress_over_time: { date: string; attempts: number; correct: number; accuracy: number | null; average_time_ms: number | null }[];
+  weekly_summary: {
+    practice_days: number;
+    answers: number;
+    correct: number;
+    accuracy: number | null;
+    median_time_ms: number | null;
+    facts_practised: number;
+    facts_secured: number;
+    focus_facts: string[];
+    focus_message: string;
+    fact_labels: string[];
+  };
   retention: {
     state_counts: { unseen: number; acquiring: number; reviewing: number; secure: number };
     due: number;
@@ -142,6 +163,7 @@ export type ChallengeResult = {
     improved_fact_accuracy: boolean;
     practiced_division: boolean;
   };
+  next_recommendation: LearningRecommendation;
 };
 
 export type RetentionRoundSummary = {
@@ -187,6 +209,7 @@ export type RetentionTestStart = {
   round_id: number;
   round_key: "baseline" | "week4" | "week8";
   questions: Question[];
+  saved_answers: { question_id: number; answer: string; response_time_ms: number }[];
 };
 
 export type Mode = "home" | "practice" | "quest" | "challenge" | "retention" | "profile" | "dashboard" | "evolution";
@@ -205,4 +228,5 @@ export type PracticeSummary = {
   evolutionTo: string | null;
   rewardReasons: string[];
   newUnlocks: Cosmetic[];
+  nextRecommendation: LearningRecommendation;
 };

@@ -86,6 +86,7 @@ test("all primary screens fit a phone without horizontal scrolling", async ({ pa
   await expect(page.getByRole("heading", { name: "Your reviews are planned" })).toBeVisible();
   await auditScreen(page, testInfo, "03-home");
 
+  await page.getByText("More training choices", { exact: true }).click();
   await page.getByRole("button", { name: /Memory Test/ }).click();
   await expect(page.getByRole("heading", { name: "Memory tests" })).toBeVisible();
   await expect(page.getByLabel("Dashboard view", { exact: true })).toHaveValue("retention");
@@ -131,6 +132,7 @@ test("challenge and quest screens fit a phone", async ({ page }, testInfo) => {
 
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "Back to home" }).click();
+  await page.getByText("Training Quests", { exact: true }).click();
   await page.getByRole("button", { name: "Start quest" }).first().click();
   await expect(page.locator(".questionText")).toBeVisible();
   await auditScreen(page, testInfo, "13-quest-question");
@@ -146,6 +148,7 @@ test("completion and results screens fit a phone", async ({ page }, testInfo) =>
   test.setTimeout(60_000);
   await login(page);
 
+  await page.getByText("More training choices", { exact: true }).click();
   await page.getByRole("button", { name: /Quick Boost/ }).click();
   await page.getByRole("button", { name: "Start practice" }).click();
   await expect(page.locator(".questionText")).not.toHaveText("Loading...");
@@ -175,6 +178,7 @@ test("completion and results screens fit a phone", async ({ page }, testInfo) =>
   await continuePastEvolution(page);
   await expect(page.getByRole("heading", { name: "Buddy" })).toBeVisible();
 
+  await page.getByText("Training Quests", { exact: true }).click();
   await page.getByRole("button", { name: "Start quest" }).first().click();
   const questionCount = Number((await page.locator(".practiceControls").innerText()).split("/")[1].trim());
   for (let index = 0; index < questionCount; index += 1) {
@@ -196,8 +200,8 @@ test("parent can schedule a fixed recall check that a learner completes on a sma
   await page.getByRole("button", { name: "Create", exact: true }).click();
   await expect(page.locator(".adminPanel .feedback")).toHaveText("Profile created.");
   const learnerRow = page.locator(".adminUserRow").filter({ hasText: learnerName });
-  await learnerRow.getByRole("button", { name: "View dashboard" }).click();
-  await selectDashboardView(page, "retention");
+  await learnerRow.getByRole("button", { name: "Memory test" }).click();
+  await expect(page.getByLabel("Dashboard view", { exact: true })).toHaveValue("retention");
   await expect(page.getByRole("heading", { name: "Memory tests" })).toBeVisible();
   await auditScreen(page, testInfo, "17-retention-parent-setup");
   await page.locator(".retentionSetup select").first().selectOption("10");
@@ -226,4 +230,39 @@ test("parent can schedule a fixed recall check that a learner completes on a sma
   await expect(page.getByText("4-week check:")).toBeVisible();
   await expect(page.getByText("Starting point")).toBeVisible();
   await auditScreen(page, testInfo, "21-retention-results");
+});
+
+test("learner table choices persist and required tables cannot be removed", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "phone-small", "Small-phone table preference workflow");
+  const learnerName = `Table Learner ${Date.now()}`;
+  await login(page);
+
+  await page.getByText("Settings", { exact: true }).click();
+  await page.getByPlaceholder("Profile name").fill(learnerName);
+  await page.getByRole("button", { name: "Create", exact: true }).click();
+  await expect(page.locator(".adminPanel .feedback")).toHaveText("Profile created.");
+  const learnerRow = page.locator(".adminUserRow").filter({ hasText: learnerName });
+  await learnerRow.getByRole("button", { name: "7 times table" }).click();
+  const requiredSave = page.waitForResponse((response) => response.url().includes("/required-tables") && response.request().method() === "PUT");
+  await learnerRow.getByRole("button", { name: "Save", exact: true }).click();
+  await requiredSave;
+
+  await page.getByRole("button", { name: "Log out" }).click();
+  await page.getByRole("button", { name: new RegExp(learnerName) }).click();
+  await page.getByRole("button", { name: `Continue as ${learnerName}` }).click();
+  await page.locator(".collapsiblePanel summary").click();
+  await expect(page.getByRole("button", { name: "7 times table, required by admin" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "7 times table, required by admin" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "2 times table", exact: true })).toHaveAttribute("aria-pressed", "false");
+
+  const preferenceSave = page.waitForResponse((response) => response.url().includes("/selected-tables") && response.request().method() === "PUT");
+  await page.getByRole("button", { name: "4 times table" }).click();
+  await preferenceSave;
+  await page.getByText("Settings", { exact: true }).click();
+  await page.getByRole("button", { name: "Log out" }).click();
+  await page.getByRole("button", { name: new RegExp(learnerName) }).click();
+  await page.getByRole("button", { name: `Continue as ${learnerName}` }).click();
+  await page.locator(".collapsiblePanel summary").click();
+  await expect(page.getByRole("button", { name: "4 times table" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "2 times table", exact: true })).toHaveAttribute("aria-pressed", "false");
 });

@@ -2,6 +2,7 @@
 
 import { FormEvent, RefObject, useCallback, useEffect, useRef, useState } from "react";
 import { AdminPanel } from "../components/AdminPanel";
+import { ChallengeResults } from "../components/ChallengeResults";
 import { CreatureAvatar, CreatureHome, CreatureProfile, EvolutionPage, EvolutionPrompt } from "../components/CreatureExperience";
 import { DashboardView, type DashboardSection } from "../components/DashboardView";
 import { Metric } from "../components/Metric";
@@ -10,13 +11,14 @@ import { ProfileLogin } from "../components/ProfileLogin";
 import { RetentionTest } from "../components/RetentionTest";
 import { TableSelector } from "../components/TableSelector";
 import { api } from "../lib/api";
+import { useActiveQuestionTimer } from "../lib/useActiveQuestionTimer";
 import type {
   ChallengeResult,
-  Cosmetic,
   Creature,
   Dashboard,
   EvolutionEvent,
   LearningEvent,
+  LearningRecommendation,
   Mode,
   PracticeSummary,
   Question,
@@ -30,11 +32,6 @@ import type {
 
 const DEFAULT_TABLES = [2, 3, 4, 5];
 const ALL_TABLES = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
-
-function formatMs(ms: number) {
-  if (ms < 1000) return `${ms} ms`;
-  return `${(ms / 1000).toFixed(1)} s`;
-}
 
 function readAnswer(inputRef: RefObject<HTMLInputElement | null>) {
   return inputRef.current?.value.trim() || "";
@@ -80,6 +77,7 @@ export default function Home() {
   const [bootstrapPassword, setBootstrapPassword] = useState("");
   const [tab, setTab] = useState<Mode>("home");
   const [tables, setTables] = useState<number[]>(DEFAULT_TABLES);
+  const latestTablesRef = useRef<number[]>(DEFAULT_TABLES);
   const [questionMode, setQuestionMode] = useState<QuestionMode>("mixed");
   const [status, setStatus] = useState("");
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
@@ -96,6 +94,7 @@ export default function Home() {
   const [activeRetention, setActiveRetention] = useState<RetentionAssessment | null>(null);
   const [postEvolutionTab, setPostEvolutionTab] = useState<Mode>("home");
   const settingsMenuRef = useRef<HTMLDivElement>(null);
+  const tableSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const focusMode = tab === "practice" || tab === "quest" || tab === "challenge" || tab === "retention" || tab === "evolution";
 
   useEffect(() => {
@@ -237,9 +236,18 @@ export default function Home() {
   }, [activeUser]);
 
   useEffect(() => {
-    if (!activeUser) return;
+    if (!activeUser) {
+      setTables(DEFAULT_TABLES);
+      setQuestionMode("mixed");
+      return;
+    }
     const required = activeUser.required_tables || [];
-    setTables((current) => Array.from(new Set([...current, ...required])).sort((a, b) => a - b));
+    const preferred = activeUser.selected_tables || [];
+    const startingTables = preferred.length > 0 ? preferred : required.length > 0 ? required : DEFAULT_TABLES;
+    const selected = Array.from(new Set([...startingTables, ...required])).sort((a, b) => a - b);
+    latestTablesRef.current = selected;
+    setTables(selected);
+    setQuestionMode(activeUser.question_mode || "mixed");
   }, [activeUser]);
 
   const loadQuests = useCallback(async (userId = activeUser?.id) => {
@@ -332,6 +340,45 @@ export default function Home() {
       body: JSON.stringify({ selected_cosmetic: selectedCosmetic })
     });
     setCreature(updated);
+  }
+
+  function updateTables(nextTables: number[]) {
+    if (!activeUser) return;
+    const userId = activeUser.id;
+    const required = activeUser.required_tables || [];
+    const selected = Array.from(new Set([...nextTables, ...required])).sort((a, b) => a - b);
+    latestTablesRef.current = selected;
+    setTables(selected);
+    tableSaveQueueRef.current = tableSaveQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        const updated = await api<User>(`/users/${userId}/selected-tables`, {
+          method: "PUT",
+          body: JSON.stringify({ tables: selected }),
+        });
+        if (latestTablesRef.current.join(",") === selected.join(",")) {
+          setActiveUser((current) => current?.id === userId ? updated : current);
+        }
+      })
+      .catch((error) => {
+        setStatus(error instanceof Error ? `Could not save table choices: ${error.message}` : "Could not save table choices.");
+      });
+  }
+
+  async function updateQuestionMode(nextMode: QuestionMode) {
+    if (!activeUser || nextMode === questionMode) return;
+    const previousMode = questionMode;
+    setQuestionMode(nextMode);
+    try {
+      const updated = await api<User>(`/users/${activeUser.id}/question-mode`, {
+        method: "PUT",
+        body: JSON.stringify({ question_mode: nextMode }),
+      });
+      setActiveUser((current) => current?.id === updated.id ? updated : current);
+    } catch (error) {
+      setQuestionMode(previousMode);
+      setStatus(error instanceof Error ? `Could not save question type: ${error.message}` : "Could not save question type.");
+    }
   }
 
   function startPracticeSession(limit: number) {
@@ -444,6 +491,12 @@ export default function Home() {
                 setDashboardSection("overview");
                 navigate("dashboard");
               }}
+              onViewMemoryTests={(userId) => {
+                setDashboard(null);
+                setDashboardUserId(userId);
+                setDashboardSection("retention");
+                navigate("dashboard");
+              }}
             />
           )}
           </div>}
@@ -484,7 +537,7 @@ export default function Home() {
           <>
             {tab === "home" && <details className="panel collapsiblePanel">
               <summary>Tables: {tables.join(", ")}</summary>
-              <TableSelector selected={tables} locked={activeUser.required_tables || []} onChange={setTables} />
+              <TableSelector selected={tables} locked={activeUser.required_tables || []} onChange={updateTables} />
               {(activeUser.required_tables || []).length > 0 && (
                 <p className="quiet">Required by admin: {activeUser.required_tables.join(", ")}. These tables stay selected.</p>
               )}
@@ -497,7 +550,7 @@ export default function Home() {
                   ["multiply", "Multiplication"],
                   ["division", "Division"],
                 ] as const).map(([value, label]) => (
-                  <button key={value} type="button" className={questionMode === value ? "active" : ""} onClick={() => setQuestionMode(value)}>
+                  <button key={value} type="button" className={questionMode === value ? "active" : ""} onClick={() => updateQuestionMode(value)}>
                     {label}
                   </button>
                 ))}
@@ -515,6 +568,7 @@ export default function Home() {
                 selectedTables={tables}
                 onStartRetention={startRetentionCheck}
                 onOpenRetention={openMemoryTests}
+                canScheduleRetention={activeUser.is_admin}
               />
             )}
             {tab === "practice" && (
@@ -642,7 +696,7 @@ function PracticeMode({
   const [summary, setSummary] = useState<PracticeSummary | null>(null);
   const [isChecking, setIsChecking] = useState(false);
   const [started, setStarted] = useState(false);
-  const startedAtRef = useRef(0);
+  const { start: startQuestionTimer, elapsedMs: elapsedQuestionTimeMs } = useActiveQuestionTimer();
   const inputRef = useRef<HTMLInputElement>(null);
   const submittingRef = useRef(false);
 
@@ -657,10 +711,10 @@ function PracticeMode({
     setAttemptNumber(1);
     setFeedback("");
     setIsChecking(false);
-    startedAtRef.current = performance.now();
+    startQuestionTimer();
     submittingRef.current = false;
     focusAnswer(inputRef);
-  }, [sessionId]);
+  }, [sessionId, startQuestionTimer]);
 
   useEffect(() => {
     setQuestionLimit(initialLimit);
@@ -708,7 +762,14 @@ function PracticeMode({
     }
   }
 
-  async function finishQuestion(delayMs: number, wasCorrect: boolean, event: LearningEvent | null, sessionComplete: boolean, updatedCreature: Creature | null) {
+  async function finishQuestion(
+    delayMs: number,
+    wasCorrect: boolean,
+    event: LearningEvent | null,
+    sessionComplete: boolean,
+    updatedCreature: Creature | null,
+    nextRecommendation: LearningRecommendation | null,
+  ) {
     const nextCount = completedCount + 1;
     const nextCorrect = correctCount + (wasCorrect ? 1 : 0);
     const nextFirstAttemptCorrect = firstAttemptCorrectCount + (wasCorrect && attemptNumber === 1 ? 1 : 0);
@@ -739,7 +800,8 @@ function PracticeMode({
         evolutionFrom: updatedCreature?.evolution_from || null,
         evolutionTo: updatedCreature?.evolution_to || null,
         rewardReasons: updatedCreature?.reward_reasons || [],
-        newUnlocks: updatedCreature?.new_unlocks || []
+        newUnlocks: updatedCreature?.new_unlocks || [],
+        nextRecommendation: nextRecommendation || { facts: [], message: "Your next practice will adapt to what you need most." },
       });
       return;
     }
@@ -770,7 +832,7 @@ function PracticeMode({
     if (!question || submittedAnswer === "" || submittingRef.current) return;
     submittingRef.current = true;
     setIsChecking(true);
-    const elapsed = Math.round(performance.now() - startedAtRef.current);
+    const elapsed = elapsedQuestionTimeMs();
     try {
       const result = await api<{
         correct: boolean;
@@ -779,6 +841,7 @@ function PracticeMode({
         session_complete: boolean;
         creature: Creature | null;
         learning_event: LearningEvent;
+        next_recommendation: LearningRecommendation | null;
       }>("/practice/answer", {
         method: "POST",
         body: JSON.stringify({
@@ -790,7 +853,7 @@ function PracticeMode({
       });
       if (result.correct) {
         setFeedback(attemptNumber === 1 ? "Correct." : "Got it on the second try.");
-        finishQuestion(280, true, result.learning_event, result.session_complete, result.creature).catch(() => setFeedback("Practice was recorded, but the next question could not load."));
+        finishQuestion(280, true, result.learning_event, result.session_complete, result.creature, result.next_recommendation).catch(() => setFeedback("Practice was recorded, but the next question could not load."));
         return;
       }
       if (result.attempt_number === 1) {
@@ -798,13 +861,13 @@ function PracticeMode({
         setAnswerValue(inputRef, "");
         setFeedback("Try once more.");
         setIsChecking(false);
-        startedAtRef.current = performance.now();
+        startQuestionTimer();
         submittingRef.current = false;
         focusAnswer(inputRef);
         return;
       }
       setFeedback(`Answer: ${result.correct_answer}`);
-      finishQuestion(850, false, result.learning_event, result.session_complete, result.creature).catch(() => setFeedback("Practice was recorded, but the next question could not load."));
+      finishQuestion(850, false, result.learning_event, result.session_complete, result.creature, result.next_recommendation).catch(() => setFeedback("Practice was recorded, but the next question could not load."));
     } catch {
       setFeedback("Could not check that answer.");
       setIsChecking(false);
@@ -879,6 +942,7 @@ function PracticeMode({
           <p>You fixed {summary?.secondTryCorrect ?? secondTryCorrectCount} mistakes on your second try.</p>
           <p>{summary?.creatureStatus}</p>
           <p className="quiet">Mistakes help {summary?.creatureName || "your companion"} learn what to train next.</p>
+          {summary?.nextRecommendation && <p className="nextLearningStep"><strong>Next focus:</strong> {summary.nextRecommendation.message}</p>}
           {summary?.newUnlocks && summary.newUnlocks.length > 0 && (
             <p className="quiet">Unlocked: {summary.newUnlocks.map((item) => item.name).join(", ")}</p>
           )}
@@ -941,7 +1005,7 @@ function QuestMode({
   const [secondTryCorrectCount, setSecondTryCorrectCount] = useState(0);
   const [result, setResult] = useState<QuestCompleteResult | null>(null);
   const [isChecking, setIsChecking] = useState(false);
-  const startedAtRef = useRef(0);
+  const { start: startQuestionTimer, elapsedMs: elapsedQuestionTimeMs } = useActiveQuestionTimer();
   const inputRef = useRef<HTMLInputElement>(null);
   const submittingRef = useRef(false);
 
@@ -954,10 +1018,10 @@ function QuestMode({
     setFeedback("");
     setResult(null);
     setIsChecking(false);
-    startedAtRef.current = performance.now();
+    startQuestionTimer();
     submittingRef.current = false;
     focusAnswer(inputRef);
-  }, [questStart.quest.quest_id]);
+  }, [questStart.quest.quest_id, startQuestionTimer]);
 
   async function finishQuestQuestion(wasCorrect: boolean, response: { session_complete: boolean; creature: Creature | null; quest_result: QuestCompleteResult | null }) {
     const nextCorrect = correctCount + (wasCorrect ? 1 : 0);
@@ -978,7 +1042,7 @@ function QuestMode({
     setAttemptNumber(1);
     setFeedback("");
     setIsChecking(false);
-    startedAtRef.current = performance.now();
+    startQuestionTimer();
     submittingRef.current = false;
     focusAnswer(inputRef);
   }
@@ -988,7 +1052,7 @@ function QuestMode({
     if (!current || submittedAnswer === "" || submittingRef.current) return;
     submittingRef.current = true;
     setIsChecking(true);
-    const elapsed = Math.round(performance.now() - startedAtRef.current);
+    const elapsed = elapsedQuestionTimeMs();
     try {
       const response = await api<{
         correct: boolean;
@@ -1017,7 +1081,7 @@ function QuestMode({
         setAnswerValue(inputRef, "");
         setFeedback("Try once more.");
         setIsChecking(false);
-        startedAtRef.current = performance.now();
+        startQuestionTimer();
         submittingRef.current = false;
         focusAnswer(inputRef);
         return;
@@ -1062,6 +1126,7 @@ function QuestMode({
           )}
           {result.creature.stage_message && <p>{result.creature.stage_message}</p>}
           <p className="quiet">{result.learning_message}</p>
+          <p className="nextLearningStep"><strong>Next focus:</strong> {result.next_recommendation.message}</p>
           {result.facts_practised.length > 0 && <p className="quiet">Facts practised: {result.facts_practised.join(", ")}</p>}
           <div className="actionRow">
             <button type="button" onClick={onBackHome}>Back home</button>
@@ -1131,16 +1196,74 @@ function ChallengeMode({
   const [sessionId, setSessionId] = useState("");
   const [index, setIndex] = useState(0);
   const [answers, setAnswers] = useState<{ question_id: number; answer: string; response_time_ms: number }[]>([]);
-  const startedAtRef = useRef(0);
+  const { start: startQuestionTimer, elapsedMs: elapsedQuestionTimeMs } = useActiveQuestionTimer();
   const [result, setResult] = useState<ChallengeResult | null>(null);
   const [feedback, setFeedback] = useState("");
   const [isSubmittingAnswer, setIsSubmittingAnswer] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const submittingRef = useRef(false);
+  const creatureUpdateRef = useRef(onCreatureUpdate);
+  const resumeAttemptedRef = useRef(false);
+  const resumeKey = `recall-forge:challenge:${user.id}`;
+
+  useEffect(() => {
+    creatureUpdateRef.current = onCreatureUpdate;
+  }, [onCreatureUpdate]);
+
+  const finishChallenge = useCallback(async (
+    activeSessionId: string,
+    completedAnswers: { question_id: number; answer: string; response_time_ms: number }[],
+  ) => {
+    const data = await api<ChallengeResult>("/challenge/submit", {
+      method: "POST",
+      body: JSON.stringify({ session_id: activeSessionId, answers: completedAnswers }),
+    });
+    window.localStorage.removeItem(resumeKey);
+    creatureUpdateRef.current(data.creature);
+    setQuestions([]);
+    setResult(data);
+    setFeedback("");
+    setIsSubmittingAnswer(false);
+    submittingRef.current = false;
+  }, [resumeKey]);
 
   useEffect(() => {
     setCount(initialCount);
   }, [initialCount]);
+
+  useEffect(() => {
+    if (resumeAttemptedRef.current) return;
+    resumeAttemptedRef.current = true;
+    const savedSessionId = window.localStorage.getItem(resumeKey);
+    if (!savedSessionId) return;
+    let cancelled = false;
+    api<{
+      session_id: string;
+      questions: Question[];
+      saved_answers: { question_id: number; answer: string; response_time_ms: number }[];
+    }>(`/challenge/${savedSessionId}`)
+      .then(async (data) => {
+        if (cancelled) return;
+        setSessionId(data.session_id);
+        setQuestions(data.questions);
+        setAnswers(data.saved_answers);
+        setIndex(data.saved_answers.length);
+        setResult(null);
+        if (data.saved_answers.length === data.questions.length) {
+          setIsSubmittingAnswer(true);
+          submittingRef.current = true;
+          await finishChallenge(data.session_id, data.saved_answers);
+          return;
+        }
+        setFeedback(`Resumed at question ${data.saved_answers.length + 1}.`);
+        startQuestionTimer();
+        focusAnswer(inputRef);
+      })
+      .catch(() => {
+        window.localStorage.removeItem(resumeKey);
+      });
+    return () => { cancelled = true; };
+  }, [finishChallenge, resumeKey, startQuestionTimer]);
 
   async function start() {
     const safeCount = Math.min(Math.max(Number.isFinite(count) ? count : initialCount, 1), 100);
@@ -1153,12 +1276,13 @@ function ChallengeMode({
       });
       setQuestions(data.questions);
       setSessionId(data.session_id);
+      window.localStorage.setItem(resumeKey, data.session_id);
       setIndex(0);
       setAnswers([]);
       setAnswerValue(inputRef, "");
       setResult(null);
       setIsSubmittingAnswer(false);
-      startedAtRef.current = performance.now();
+      startQuestionTimer();
       submittingRef.current = false;
       focusAnswer(inputRef);
     } catch {
@@ -1172,31 +1296,39 @@ function ChallengeMode({
     if (!current || submittedAnswer === "" || submittingRef.current) return;
     submittingRef.current = true;
     setIsSubmittingAnswer(true);
+    const savedAnswer =
+      { question_id: current.question_id, answer: submittedAnswer, response_time_ms: elapsedQuestionTimeMs() };
     const nextAnswers = [
       ...answers,
-      { question_id: current.question_id, answer: submittedAnswer, response_time_ms: Math.round(performance.now() - startedAtRef.current) }
+      savedAnswer,
     ];
     setAnswerValue(inputRef, "");
-    if (index + 1 < questions.length) {
+    try {
+      await api<{ saved: boolean }>("/challenge/answer", {
+        method: "POST",
+        body: JSON.stringify({ session_id: sessionId, ...savedAnswer }),
+      });
       setAnswers(nextAnswers);
       setIndex(index + 1);
-      startedAtRef.current = performance.now();
+    } catch {
+      setAnswerValue(inputRef, submittedAnswer);
+      setFeedback("Could not save that answer. Please try again.");
+      setIsSubmittingAnswer(false);
+      submittingRef.current = false;
+      focusAnswer(inputRef);
+      return;
+    }
+    if (index + 1 < questions.length) {
+      startQuestionTimer();
       setIsSubmittingAnswer(false);
       submittingRef.current = false;
       focusAnswer(inputRef);
       return;
     }
     try {
-      const data = await api<ChallengeResult>("/challenge/submit", {
-        method: "POST",
-        body: JSON.stringify({ session_id: sessionId, answers: nextAnswers })
-      });
-      onCreatureUpdate(data.creature);
-      setQuestions([]);
-      setResult(data);
+      await finishChallenge(sessionId, nextAnswers);
     } catch {
-      setAnswerValue(inputRef, submittedAnswer);
-      setFeedback("Could not save the challenge. Your answer is still here.");
+      setFeedback("Your answers are saved. Finish the challenge when the connection is ready.");
       setIsSubmittingAnswer(false);
       submittingRef.current = false;
     }
@@ -1212,7 +1344,7 @@ function ChallengeMode({
   }
 
   function backHome() {
-    if (questions.length > 0 && !result && !window.confirm("Leave this challenge and go home? Current challenge answers will not be submitted.")) return;
+    if (questions.length > 0 && !result && !window.confirm("Leave this challenge and go home? Saved answers will be here when you return.")) return;
     onBackHome();
   }
 
@@ -1286,6 +1418,19 @@ function ChallengeMode({
         </div>
       )}
       {feedback && !current && <p className="error">{feedback}</p>}
+      {!current && questions.length > 0 && answers.length === questions.length && !result && (
+        <button type="button" className="startTestButton" disabled={isSubmittingAnswer} onClick={() => {
+          setIsSubmittingAnswer(true);
+          submittingRef.current = true;
+          finishChallenge(sessionId, answers).catch(() => {
+            setFeedback("Your answers are saved. Finish the challenge when the connection is ready.");
+            setIsSubmittingAnswer(false);
+            submittingRef.current = false;
+          });
+        }}>
+          {isSubmittingAnswer ? "Finishing..." : "Finish challenge"}
+        </button>
+      )}
       {result && (
         <ChallengeResults
           result={result}
@@ -1303,97 +1448,5 @@ function ChallengeMode({
         />
       )}
     </section>
-  );
-}
-
-function ChallengeResults({
-  result,
-  creatureName,
-  creatureStatus,
-  energyGained,
-  xpGained,
-  stageMessage,
-  evolutionFrom,
-  evolutionTo,
-  newUnlocks,
-  onRestart,
-  onBackHome,
-  onShowDashboard
-}: {
-  result: ChallengeResult;
-  creatureName: string;
-  creatureStatus: string;
-  energyGained: number;
-  xpGained: number;
-  stageMessage: string;
-  evolutionFrom: string | null;
-  evolutionTo: string | null;
-  newUnlocks: Cosmetic[];
-  onRestart: () => void;
-  onBackHome: () => void;
-  onShowDashboard: () => void;
-}) {
-  return (
-    <div className="results">
-      {evolutionFrom && evolutionTo && (
-        <EvolutionPrompt creatureName={creatureName} toStage={evolutionTo} />
-      )}
-      <div className="creatureResult">
-        <strong>{creatureName} gained {energyGained} energy and {xpGained} XP from your challenge.</strong>
-        {stageMessage && <p>{stageMessage}</p>}
-        {creatureStatus && <p>{creatureStatus}</p>}
-        {newUnlocks.length > 0 && <p>Unlocked: {newUnlocks.map((item) => item.name).join(", ")}</p>}
-      </div>
-      <div className="metricGrid">
-        <Metric label="Accuracy" value={`${Math.round(result.accuracy * 100)}%`} />
-        <Metric label="Total time" value={formatMs(result.total_time_ms)} />
-        <Metric label="Average" value={formatMs(result.average_time_ms)} />
-        <Metric label="Score" value={`${result.correct_count}/${result.question_count}`} />
-      </div>
-      <div className="creatureResult">
-        <strong>{result.beat_recent_average ? "You beat your recent average." : "Challenge rhythm recorded."}</strong>
-        <p>
-          Recent average: {result.recent_average_ms ? formatMs(result.recent_average_ms) : "not enough data yet"} · Personal best average:{" "}
-          {result.personal_best_average_ms ? formatMs(result.personal_best_average_ms) : "not enough data yet"}
-        </p>
-      </div>
-      <div className="split">
-        <div>
-          <h3>Fastest</h3>
-          <p>{result.fastest.prompt} · {formatMs(result.fastest.response_time_ms)}</p>
-        </div>
-        <div>
-          <h3>Slowest</h3>
-          <p>{result.slowest.prompt} · {formatMs(result.slowest.response_time_ms)}</p>
-        </div>
-      </div>
-      <h3>Incorrect answers</h3>
-      {result.incorrect_answers.length === 0 ? (
-        <p className="quiet">None this time.</p>
-      ) : (
-        <ul className="plainList">
-          {result.incorrect_answers.map((item, index) => (
-            <li key={`${item.prompt}-${index}`}>
-              {item.prompt} You said {item.answer_given}; answer {item.correct_answer}.
-            </li>
-          ))}
-        </ul>
-      )}
-      <h3>Previous 10</h3>
-      {result.previous_10.length === 0 ? (
-        <p className="quiet">No earlier challenges yet.</p>
-      ) : (
-        <div className="history">
-          {result.previous_10.map((item) => (
-            <span key={item.id}>{Math.round(item.accuracy * 100)}% · {formatMs(item.average_time_ms)}</span>
-          ))}
-        </div>
-      )}
-      <div className="actionRow">
-        <button type="button" className="secondaryButton" onClick={onBackHome}>Home</button>
-        <button type="button" onClick={onRestart}>Run again</button>
-        <button type="button" className="secondaryButton" onClick={onShowDashboard}>See dashboard</button>
-      </div>
-    </div>
   );
 }

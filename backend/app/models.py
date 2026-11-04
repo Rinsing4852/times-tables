@@ -38,6 +38,8 @@ class User(Base):
     last_weekly_reset_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     weekly_goal_awarded_week: Mapped[str] = mapped_column(String(16), nullable=False, default="")
     required_tables: Mapped[str] = mapped_column(String(64), nullable=False, default="[]")
+    selected_tables: Mapped[str] = mapped_column(String(64), nullable=False, default="[]")
+    question_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="mixed")
     mega_evolution_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     attempts: Mapped[list["QuestionAttempt"]] = relationship(back_populates="user")
@@ -209,6 +211,8 @@ class LearningSessionQuestion(Base):
     fact_id: Mapped[int] = mapped_column(ForeignKey("facts.id"), nullable=False)
     question_type: Mapped[str] = mapped_column(String(32), nullable=False)
     prompt: Mapped[str] = mapped_column(String(80), nullable=False)
+    answer_given: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    response_time_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     completed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 

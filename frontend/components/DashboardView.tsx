@@ -92,7 +92,7 @@ export function DashboardView({
         </>
       )}
       {view === "accuracy" && <HeatMap title="Accuracy" cells={selectedCells} rows={selectedTables} columns={ALL_TABLES} valueKey="accuracy" />}
-      {view === "speed" && <HeatMap title="Speed" cells={selectedCells} rows={selectedTables} columns={ALL_TABLES} valueKey="average_time_ms" speed />}
+      {view === "speed" && <><p className="quiet">Speed uses the median of up to 10 recent first answers, so one interrupted answer does not distort the picture.</p><HeatMap title="Speed" cells={selectedCells} rows={selectedTables} columns={ALL_TABLES} valueKey="average_time_ms" speed /></>}
       {view === "progress" && <ParentStats dashboard={dashboard} />}
       {view === "retention" && (
         <RetentionAssessments
@@ -204,7 +204,14 @@ function RetentionAssessments({
         </ol>
       </details>
       {assessments.length === 0 ? (
-        <p className="quiet">No long-term memory test has been created yet.</p>
+        canSchedule ? (
+          <p className="quiet">No long-term memory test has been created yet. Choose the options above to create the baseline.</p>
+        ) : (
+          <div className="retentionEmptyState" role="status">
+            <strong>No memory test is ready for this profile.</strong>
+            <p>A parent can set one up from User management by choosing this learner&apos;s Memory test button.</p>
+          </div>
+        )
       ) : (
         <div className="retentionHistory">
           {assessments.map((assessment) => (
@@ -254,6 +261,18 @@ function ParentStats({ dashboard }: { dashboard: Dashboard }) {
   return (
     <section className="panel parentStats">
       <h2>Parent stats</h2>
+      <section className="weeklySummary">
+        <div className="sectionHeader"><div><p className="eyebrow">This week</p><h3>Learning summary</h3></div></div>
+        <div className="metricGrid">
+          <Metric label="Practice days" value={`${dashboard.weekly_summary.practice_days}`} />
+          <Metric label="First answers" value={`${dashboard.weekly_summary.answers}`} />
+          <Metric label="Accuracy" value={accuracyLabel(dashboard.weekly_summary.accuracy)} />
+          <Metric label="Median recall" value={dashboard.weekly_summary.median_time_ms === null ? "Not enough data" : formatMs(dashboard.weekly_summary.median_time_ms)} />
+          <Metric label="Facts practised" value={`${dashboard.weekly_summary.facts_practised}`} />
+          <Metric label="Newly secured" value={`${dashboard.weekly_summary.facts_secured}`} />
+        </div>
+        <p className="nextLearningStep"><strong>Suggested focus:</strong> {dashboard.weekly_summary.focus_message}</p>
+      </section>
       <h3>Memory reviews</h3>
       <div className="metricGrid retentionMetrics">
         <Metric label="Ready to review" value={`${retention.due}`} />

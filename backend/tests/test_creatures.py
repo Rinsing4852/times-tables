@@ -6,6 +6,7 @@ from app.creatures import (
     creature_status,
     decayed_energy,
     energy_gain_for_questions,
+    growth_rank_for_level,
     level_for_xp,
     session_rewards,
     stage_for_level,
@@ -72,6 +73,9 @@ def test_level_thresholds_and_stages_are_predictable() -> None:
     assert stage_for_level(1) == "Egg"
     assert stage_for_level(4) == "Youngling"
     assert stage_for_level(11) == "Champion"
+    assert growth_rank_for_level(11) == 1
+    assert growth_rank_for_level(16) == 2
+    assert level_for_xp(xp_threshold_for_level(16)) == 16
 
 
 def test_session_rewards_favour_effort_and_improvement() -> None:
@@ -137,3 +141,16 @@ def test_creature_payload_only_exposes_active_mega_form() -> None:
     assert payload["mega_evolution_active"] is True
     assert payload["mega_evolution_unlocked"] is True
     assert payload["mega_evolution_until"] is not None
+
+
+def test_champion_payload_keeps_a_visible_next_growth_milestone() -> None:
+    user = DummyUser()
+    user.xp = xp_threshold_for_level(16)
+    user.level = 16
+    user.stage = "Champion"
+
+    payload = creature_payload(user)
+
+    assert payload["growth_title"] == "Champion Rank 2"
+    assert payload["next_growth_milestone_level"] == 21
+    assert payload["xp_to_next_growth_milestone"] > 0

@@ -12,6 +12,7 @@ from .creatures import (
     creature_payload,
     decayed_energy,
     energy_gain_for_questions,
+    growth_rank_for_level,
     session_rewards,
     sync_level_and_stage,
     unlock_cosmetics,
@@ -99,6 +100,7 @@ def award_learning_session(db: Session, learning_session: LearningSession, user:
         return creature_payload(user)
     now = datetime.now(timezone.utc)
     previous_level, previous_stage, _, _ = sync_level_and_stage(user)
+    previous_growth_rank = growth_rank_for_level(previous_level)
     energy_gained = energy_gain_for_questions(learning_session.completed_questions)
     current_energy = decayed_energy(user, now)
     full_energy_bonus_xp = 5 if current_energy >= 100 else 0
@@ -137,6 +139,7 @@ def award_learning_session(db: Session, learning_session: LearningSession, user:
     user.total_questions_answered = (user.total_questions_answered or 0) + learning_session.completed_questions
     user.total_sessions_completed = (user.total_sessions_completed or 0) + 1
     _, _, new_level, new_stage = sync_level_and_stage(user)
+    new_growth_rank = growth_rank_for_level(new_level)
     cosmetic_keys = []
     if user.total_sessions_completed >= 1:
         cosmetic_keys.append("spark-hat")
@@ -156,6 +159,8 @@ def award_learning_session(db: Session, learning_session: LearningSession, user:
     stage_message = ""
     if new_stage != previous_stage:
         stage_message = f"{user.creature_name} has reached the {new_stage} stage."
+    elif new_growth_rank > previous_growth_rank:
+        stage_message = f"{user.creature_name} reached Champion Rank {new_growth_rank}."
     elif new_level > previous_level:
         stage_message = f"{user.creature_name} grew stronger."
     learning_session.status = "completed"

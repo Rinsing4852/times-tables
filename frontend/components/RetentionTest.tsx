@@ -1,8 +1,9 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
-import type { Question, RetentionAssessment, RetentionRoundSummary, RetentionTestStart } from "../lib/types";
+import type { LearningRecommendation, Question, RetentionAssessment, RetentionRoundSummary, RetentionTestStart } from "../lib/types";
+import { useActiveQuestionTimer } from "../lib/useActiveQuestionTimer";
 import { Metric } from "./Metric";
 import { NumberPad } from "./NumberPad";
 
@@ -34,26 +35,71 @@ export function RetentionTest({
   const [result, setResult] = useState<RetentionAssessment | null>(null);
   const [message, setMessage] = useState("Loading recall check...");
   const [submitting, setSubmitting] = useState(false);
+  const [nextRecommendation, setNextRecommendation] = useState<LearningRecommendation | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const startedAtRef = useRef(0);
+  const { start: startQuestionTimer, elapsedMs: elapsedQuestionTimeMs } = useActiveQuestionTimer();
   const submittingRef = useRef(false);
+  const startAttemptedRef = useRef(false);
+  const onCompleteRef = useRef(onComplete);
 
   useEffect(() => {
+    onCompleteRef.current = onComplete;
+  }, [onComplete]);
+
+  const finishRound = useCallback(async (
+    activeStart: RetentionTestStart,
+    completedAnswers: { question_id: number; answer: string; response_time_ms: number }[],
+  ) => {
+    const data = await api<{
+      assessment: RetentionAssessment;
+      completed_round_key: string;
+      next_recommendation: LearningRecommendation;
+    }>(`/retention-assessments/${assessment.assessment_id}/submit`, {
+      method: "POST",
+      body: JSON.stringify({ round_id: activeStart.round_id, answers: completedAnswers }),
+    });
+    setQuestions([]);
+    setResult(data.assessment);
+    setNextRecommendation(data.next_recommendation);
+    setMessage("");
+    setSubmitting(false);
+    submittingRef.current = false;
+    onCompleteRef.current(data.assessment);
+  }, [assessment.assessment_id]);
+
+  useEffect(() => {
+    if (startAttemptedRef.current) return;
+    startAttemptedRef.current = true;
     let cancelled = false;
     api<RetentionTestStart>(`/retention-assessments/${assessment.assessment_id}/start`, { method: "POST" })
       .then((data) => {
         if (cancelled) return;
         setStarted(data);
         setQuestions(data.questions);
+        setAnswers(data.saved_answers);
+        setIndex(data.saved_answers.length);
         setMessage("");
-        startedAtRef.current = performance.now();
+        if (data.saved_answers.length === data.questions.length) {
+          setSubmitting(true);
+          submittingRef.current = true;
+          finishRound(data, data.saved_answers).catch((error) => {
+            if (!cancelled) {
+              setMessage(error instanceof Error ? error.message : "Your answers are saved. Finish the recall check when ready.");
+              setSubmitting(false);
+              submittingRef.current = false;
+            }
+          });
+          return;
+        }
+        if (data.saved_answers.length > 0) setMessage(`Resumed at question ${data.saved_answers.length + 1}.`);
+        startQuestionTimer();
         requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }));
       })
       .catch((error) => {
         if (!cancelled) setMessage(error instanceof Error ? error.message : "Could not start the recall check.");
       });
     return () => { cancelled = true; };
-  }, [assessment.assessment_id]);
+  }, [assessment.assessment_id, finishRound, startQuestionTimer]);
 
   function setInput(value: string) {
     if (inputRef.current) inputRef.current.value = value;
@@ -69,19 +115,33 @@ export function RetentionTest({
     if (!current || !started || !answer || submittingRef.current) return;
     submittingRef.current = true;
     setSubmitting(true);
+    const savedAnswer = {
+      question_id: current.question_id,
+      answer,
+      response_time_ms: elapsedQuestionTimeMs(),
+    };
     const nextAnswers = [
       ...answers,
-      {
-        question_id: current.question_id,
-        answer,
-        response_time_ms: Math.round(performance.now() - startedAtRef.current),
-      },
+      savedAnswer,
     ];
     setInput("");
-    if (index + 1 < questions.length) {
+    try {
+      await api<{ saved: boolean }>(`/retention-assessments/${assessment.assessment_id}/answer`, {
+        method: "POST",
+        body: JSON.stringify({ round_id: started.round_id, ...savedAnswer }),
+      });
       setAnswers(nextAnswers);
       setIndex((currentIndex) => currentIndex + 1);
-      startedAtRef.current = performance.now();
+    } catch (error) {
+      setInput(answer);
+      setMessage(error instanceof Error ? error.message : "Could not save that answer. Please try again.");
+      setSubmitting(false);
+      submittingRef.current = false;
+      focusInput();
+      return;
+    }
+    if (index + 1 < questions.length) {
+      startQuestionTimer();
       setSubmitting(false);
       submittingRef.current = false;
       focusInput();
@@ -89,19 +149,9 @@ export function RetentionTest({
     }
 
     try {
-      const data = await api<{ assessment: RetentionAssessment; completed_round_key: string }>(
-        `/retention-assessments/${assessment.assessment_id}/submit`,
-        {
-          method: "POST",
-          body: JSON.stringify({ round_id: started.round_id, answers: nextAnswers }),
-        },
-      );
-      setQuestions([]);
-      setResult(data.assessment);
-      onComplete(data.assessment);
+      await finishRound(started, nextAnswers);
     } catch (error) {
-      setInput(answer);
-      setMessage(error instanceof Error ? error.message : "Could not save the recall check. Your answer is still here.");
+      setMessage(error instanceof Error ? error.message : "Your answers are saved. Finish the recall check when ready.");
       setSubmitting(false);
       submittingRef.current = false;
       focusInput();
@@ -131,7 +181,7 @@ export function RetentionTest({
   }
 
   function backHome() {
-    if (questions.length > 0 && !window.confirm("Leave this recall check and go home? Current answers will not be saved.")) return;
+    if (questions.length > 0 && !window.confirm("Leave this recall check and go home? Saved answers will be here when you return.")) return;
     onBackHome();
   }
 
@@ -146,6 +196,19 @@ export function RetentionTest({
         </button>
       )}
       {message && !current && !result && <p className="retentionLoading" role="status">{message}</p>}
+      {!current && started && questions.length > 0 && answers.length === questions.length && !result && (
+        <button type="button" className="startTestButton" disabled={submitting} onClick={() => {
+          setSubmitting(true);
+          submittingRef.current = true;
+          finishRound(started, answers).catch((error) => {
+            setMessage(error instanceof Error ? error.message : "Your answers are saved. Finish the recall check when ready.");
+            setSubmitting(false);
+            submittingRef.current = false;
+          });
+        }}>
+          {submitting ? "Finishing..." : "Finish recall check"}
+        </button>
+      )}
       {current && (
         <div className="practiceSurface compact retentionQuestionSurface">
           <div className="progressLine">{index + 1} of {questions.length}</div>
@@ -183,6 +246,7 @@ export function RetentionTest({
             <Metric label="Average recall" value={formatMs(completedRound.average_time_ms)} />
             <Metric label="Median recall" value={formatMs(completedRound.median_time_ms)} />
           </div>
+          {nextRecommendation && <p className="nextLearningStep"><strong>Next focus:</strong> {nextRecommendation.message}</p>}
           {result.next_round_key && result.next_due_at ? (
             <div className="retentionNextStep">
               <strong>Next: {result.next_round_label}</strong>

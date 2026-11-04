@@ -26,6 +26,7 @@ test("keyboard submission is acknowledged and advances practice", async ({ page 
   await page.getByRole("button", { name: "Continue as Test Parent" }).click();
   await expect(page.getByRole("heading", { name: "Buddy" })).toBeVisible();
 
+  await page.getByText("More training choices", { exact: true }).click();
   await page.getByRole("button", { name: /Quick Boost/ }).click();
   await page.getByRole("button", { name: "Start practice" }).click();
   const question = page.locator(".questionText");
@@ -55,12 +56,34 @@ test("settings button opens and closes the menu", async ({ page }, testInfo) => 
   await expect(page.getByRole("dialog", { name: "Settings menu" })).toHaveCount(0);
 });
 
+test("challenge resumes after a page reload", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop", "Resume behaviour only needs one browser project");
+  await page.goto("/");
+  await page.getByRole("button", { name: /Test Parent/ }).click();
+  await page.getByPlaceholder("Passcode").fill("246824");
+  await page.getByRole("button", { name: "Continue as Test Parent" }).click();
+  await expect(page.getByRole("heading", { name: "Buddy" })).toBeVisible();
+  await page.getByRole("button", { name: "Challenge", exact: true }).click();
+  await page.getByRole("button", { name: "Start challenge" }).click();
+  const prompt = await page.locator(".questionText").innerText();
+  await page.getByRole("textbox", { name: "Answer" }).fill(solve(prompt));
+  await page.getByRole("textbox", { name: "Answer" }).press("Enter");
+  await expect(page.locator(".progressLine")).toHaveText("2 of 20");
+
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Buddy" })).toBeVisible();
+  await page.getByRole("button", { name: "Challenge", exact: true }).click();
+  await expect(page.locator(".progressLine")).toHaveText("2 of 20");
+  await expect(page.getByRole("textbox", { name: "Answer" })).toBeFocused();
+});
+
 test("phone layouts stay within the viewport", async ({ page }, testInfo) => {
   test.skip(!isPhoneProject(testInfo.project.name), "Phone-only viewport assertion");
   await page.goto("/");
   await page.getByRole("button", { name: /Test Parent/ }).click();
   await page.getByPlaceholder("Passcode").fill("246824");
   await page.getByRole("button", { name: "Continue as Test Parent" }).click();
+  await page.getByText("More training choices", { exact: true }).click();
   await page.getByRole("button", { name: /Quick Boost/ }).click();
   await page.getByRole("button", { name: "Start practice" }).click();
 

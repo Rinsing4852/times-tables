@@ -16,11 +16,17 @@ def selected_tables(assessment: RetentionAssessment) -> list[int]:
 
 
 def build_question_specs(facts: list[Fact], question_count: int, question_mode: str) -> list[tuple[Fact, str, str]]:
-    ordered_facts = sorted(facts, key=lambda fact: (fact.a, fact.b, fact.id))
+    facts_by_table: dict[int, list[Fact]] = {}
+    for fact in sorted(facts, key=lambda item: (item.a, item.b, item.id)):
+        facts_by_table.setdefault(fact.a, []).append(fact)
+    table_groups = [facts_by_table[table] for table in sorted(facts_by_table)]
     question_types = question_types_for_mode(question_mode)
     specs = []
     for position in range(question_count):
-        fact = ordered_facts[position % len(ordered_facts)]
+        table_index = position % len(table_groups)
+        pass_index = position // len(table_groups)
+        table_facts = table_groups[table_index]
+        fact = table_facts[pass_index % len(table_facts)]
         question_type = question_types[position % len(question_types)]
         prompt, _ = question_for_fact(fact, question_type)
         specs.append((fact, question_type, prompt))

@@ -16,6 +16,7 @@ const tableSelectorSource = readFileSync(join(root, "components/TableSelector.ts
 const layoutSource = readFileSync(join(root, "app/layout.tsx"), "utf8");
 const manifestSource = readFileSync(join(root, "app/manifest.ts"), "utf8");
 const serviceWorkerSource = readFileSync(join(root, "public/sw.js"), "utf8");
+const activeTimerSource = readFileSync(join(root, "lib/useActiveQuestionTimer.ts"), "utf8");
 const creatureAssets = readdirSync(join(root, "public/assets/creatures")).filter((file) => file.endsWith(".svg"));
 
 test("the application shell delegates major views to focused components", () => {
@@ -55,6 +56,10 @@ test("focused maths runs use a stable timer-free keypad", () => {
   assert.match(numberPadSource, /Clear answer/);
   assert.match(numberPadSource, /Delete last digit/);
   assert.doesNotMatch(pageSource, /countdown/i);
+  assert.match(activeTimerSource, /visibilitychange/);
+  assert.match(activeTimerSource, /document\.visibilityState/);
+  assert.match(pageSource, /useActiveQuestionTimer/);
+  assert.match(retentionSource, /useActiveQuestionTimer/);
 });
 
 test("profile chooser supports passcode login and first-time setup", () => {
@@ -63,6 +68,13 @@ test("profile chooser supports passcode login and first-time setup", () => {
   assert.match(loginSource, /Create the parent profile/);
   assert.match(pageSource, /\/auth\/login/);
   assert.match(pageSource, /\/auth\/logout/);
+});
+
+test("table choices are stored per profile while admin-required tables stay locked", () => {
+  assert.match(pageSource, /selected_tables/);
+  assert.match(pageSource, /\/selected-tables/);
+  assert.match(pageSource, /tableSaveQueueRef/);
+  assert.match(tableSelectorSource, /required by admin/);
 });
 
 test("evolution uses a dedicated navigation-gated event screen", () => {
@@ -82,6 +94,8 @@ test("admin backup and progress export actions are exposed", () => {
   assert.ok(adminSource.includes("/progress.csv"));
   assert.match(adminSource, /Export evaluation CSV/);
   assert.ok(adminSource.includes("/evaluation.csv"));
+  assert.match(adminSource, /Memory test/);
+  assert.match(adminSource, /onViewMemoryTests/);
 });
 
 test("the installable shell stays accessible and never caches backend responses", () => {
@@ -91,7 +105,7 @@ test("the installable shell stays accessible and never caches backend responses"
   assert.match(layoutSource, /viewportFit: "cover"/);
   assert.match(manifestSource, /display: "standalone"/);
   assert.match(serviceWorkerSource, /url\.pathname\.startsWith\("\/backend-api\/"\)/);
-  assert.match(serviceWorkerSource, /recall-forge-shell-v2/);
+  assert.match(serviceWorkerSource, /recall-forge-shell-v5/);
   assert.match(pageSource, /Skip to main content/);
   assert.match(pageSource, /id="main-content"/);
   assert.match(pageSource, /aria-current/);
@@ -142,4 +156,5 @@ test("long-term recall checks use a distraction-free fixed assessment surface", 
   assert.match(creatureSource, /memoryTestAction/);
   assert.match(creatureSource, /Start Memory Test/);
   assert.match(creatureSource, /onOpenRetention/);
+  assert.match(dashboardSource, /No memory test is ready for this profile/);
 });

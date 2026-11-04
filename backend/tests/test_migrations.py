@@ -19,6 +19,12 @@ def test_migrations_upgrade_legacy_schema_and_are_repeatable(tmp_path) -> None:
                 "CREATE TABLE question_attempts (id INTEGER PRIMARY KEY, user_id INTEGER, fact_id INTEGER, created_at DATETIME)"
             )
         )
+        connection.execute(
+            text(
+                "CREATE TABLE learning_session_questions (id INTEGER PRIMARY KEY, session_id VARCHAR(64), "
+                "position INTEGER, fact_id INTEGER, question_type VARCHAR(32), prompt VARCHAR(80))"
+            )
+        )
 
     run_migrations(engine)
     run_migrations(engine)
@@ -30,7 +36,7 @@ def test_migrations_upgrade_legacy_schema_and_are_repeatable(tmp_path) -> None:
         versions = connection.execute(text("SELECT version FROM schema_migrations ORDER BY version")).scalars().all()
         is_admin = connection.execute(text("SELECT is_admin FROM users WHERE id = 1")).scalar_one()
 
-    assert {"creature_type", "energy", "xp", "is_admin", "required_tables", "mega_evolution_until"}.issubset(user_columns)
+    assert {"creature_type", "energy", "xp", "is_admin", "required_tables", "selected_tables", "question_mode", "mega_evolution_until"}.issubset(user_columns)
     assert {
         "first_attempt_response_time_ms",
         "first_attempt_response_count",
@@ -49,5 +55,7 @@ def test_migrations_upgrade_legacy_schema_and_are_repeatable(tmp_path) -> None:
         "retention_assessment_rounds",
         "retention_assessment_attempts",
     }.issubset(set(inspector.get_table_names()))
-    assert versions == [1, 2, 3, 4, 5, 6]
+    learning_question_columns = {column["name"] for column in inspector.get_columns("learning_session_questions")}
+    assert {"answer_given", "response_time_ms"}.issubset(learning_question_columns)
+    assert versions == [1, 2, 3, 4, 5, 6, 7, 8]
     assert is_admin == 1

@@ -10,11 +10,13 @@ export function AdminPanel({
   users,
   onRefresh,
   onViewDashboard,
+  onViewMemoryTests,
 }: {
   adminUser: User;
   users: User[];
   onRefresh: () => Promise<void>;
   onViewDashboard: (userId: number) => void;
+  onViewMemoryTests: (userId: number) => void;
 }) {
   const [newName, setNewName] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -74,7 +76,7 @@ export function AdminPanel({
         <button type="submit" disabled={creating}>{creating ? "Creating..." : "Create"}</button>
       </form>
       <div className="adminUserList">
-        {users.map((user) => <AdminUserRow key={user.id} adminUser={adminUser} user={user} onRefresh={onRefresh} onViewDashboard={onViewDashboard} />)}
+        {users.map((user) => <AdminUserRow key={user.id} adminUser={adminUser} user={user} onRefresh={onRefresh} onViewDashboard={onViewDashboard} onViewMemoryTests={onViewMemoryTests} />)}
       </div>
       {message && <p className="feedback">{message}</p>}
     </section>
@@ -86,11 +88,13 @@ function AdminUserRow({
   user,
   onRefresh,
   onViewDashboard,
+  onViewMemoryTests,
 }: {
   adminUser: User;
   user: User;
   onRefresh: () => Promise<void>;
   onViewDashboard: (userId: number) => void;
+  onViewMemoryTests: (userId: number) => void;
 }) {
   const [name, setName] = useState(user.name);
   const [password, setPassword] = useState("");
@@ -141,6 +145,7 @@ function AdminUserRow({
       </div>
       <div className="adminRowActions">
         <button type="button" className="secondaryButton" onClick={() => onViewDashboard(user.id)}>View dashboard</button>
+        <button type="button" className="secondaryButton" onClick={() => onViewMemoryTests(user.id)}>Memory test</button>
         <button type="button" onClick={save}>Save</button>
         <button type="button" className="secondaryButton" onClick={resetProgress}>Reset progress</button>
         <button type="button" className="dangerButton" onClick={deleteUser} disabled={user.id === adminUser.id}>Delete</button>

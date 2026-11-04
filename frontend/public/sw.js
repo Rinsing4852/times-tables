@@ -1,4 +1,4 @@
-const CACHE_NAME = "recall-forge-shell-v2";
+const CACHE_NAME = "recall-forge-shell-v5";
 const APP_SHELL = [
   "/",
   "/offline.html",

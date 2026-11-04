@@ -1,6 +1,6 @@
 # Recall Forge
 
-Recall Forge 0.10.3 is a self-hosted times tables practice app for local use. It is intentionally focused: authenticated local profiles, adaptive practice, scheduled review, long-term retention checks, smart training quests, challenge mode, heat maps, SQLite, no external accounts, no analytics, and no AI API. It also includes a light companion creature theme where practice gives the creature energy and XP while the learning engine stays focused on recall and spaced practice. Each species has a distinct five-stage evolution path and a dedicated transformation moment, but remains a calm maths companion rather than a needy care system.
+Recall Forge 0.11.0 is a self-hosted times tables practice app for local use. It is intentionally focused: authenticated local profiles, adaptive practice, scheduled review, resumable long-term retention checks and challenges, smart training quests, heat maps, SQLite, no external accounts, no analytics, and no AI API. It also includes a light companion creature theme where practice gives the creature energy and XP while the learning engine stays focused on recall and spaced practice. Each species has a distinct five-stage evolution path, continuing Champion ranks, and a dedicated transformation moment, but remains a calm maths companion rather than a needy care system.
 
 ## Stack
 
@@ -129,8 +129,8 @@ To make the stack manageable through Dockge:
 For controlled updates, replace `latest` on both `image:` lines with the same version, for example:
 
 ```yaml
-image: ghcr.io/rinsing4852/recall-forge-backend:0.10.3
-image: ghcr.io/rinsing4852/recall-forge-frontend:0.10.3
+image: ghcr.io/rinsing4852/recall-forge-backend:0.11.0
+image: ghcr.io/rinsing4852/recall-forge-frontend:0.11.0
 ```
 
 Keep both services on the same version. Take an admin database backup before rolling back across versions that include schema changes.
@@ -229,7 +229,8 @@ npm test
 - Multiple authenticated local profiles. The first profile is the admin and requires a passcode of at least six characters by default.
 - Admin profiles can create other admins, rename profiles, reset passcodes, reset progress, and delete profiles.
 - A safe creature companion per profile with type, name, energy, XP, level, stage, weekly goal, cosmetic unlocks, and 30 lightweight species-stage SVGs.
-- A visual five-stage growth path, six-species picker, and positive full-screen evolution moment.
+- A visual five-stage growth path, continuing Champion ranks, six-species picker, and positive full-screen evolution moment.
+- One recommended training action on the learner home screen, with alternate sessions and quests kept in collapsible sections.
 - Smart training quests generated from fact accuracy, speed, and recent mistakes.
 - Explicit unseen, acquiring, reviewing, and secure learning states with 1, 3, 7, 14, 30, and 60-day review intervals.
 - Practice sessions composed from due reviews, acquiring facts, and interleaved facts while retaining adaptive weighting.
@@ -243,7 +244,9 @@ npm test
 - Practice mode with multiplication, reversed multiplication, division, and missing-factor prompts.
 - One retry after an incorrect practice answer.
 - Challenge mode with no visible timer and end-of-session summary.
+- Challenge and long-term memory-test answers are saved after every question and resume after refresh or navigation.
 - Per-user dashboard with accuracy and speed heat maps plus progress over time.
+- A factual weekly parent summary with practice days, first-answer accuracy, recent median recall speed, facts secured, and a suggested next focus.
 - Per-fact stats for correctness, first-attempt accuracy, second-attempt accuracy, response time, last seen, and recent failures.
 - Rules-based adaptive priority scoring:
 
@@ -252,9 +255,10 @@ priority_score = error_rate + slowness_score + spacing_score + recent_failure_bo
 ```
 
 Weak, slow, recently failed, or stale facts are selected more often. Consistently correct and fast facts gradually appear less often.
-Recent performance uses the latest attempts for each fact, so strong facts appear less often while never disappearing entirely.
+Recent performance uses the latest attempts for each fact, so strong facts appear less often while never disappearing entirely. Speed reporting uses the median of up to 10 recent first answers so one interruption does not permanently distort a fact.
 
 The staged plan for adding explicit acquisition, scheduled review, and retention measurement is documented in [docs/learning-roadmap.md](docs/learning-roadmap.md).
+The longer-term, non-punitive companion plan is documented in [docs/creature-progression-roadmap.md](docs/creature-progression-roadmap.md).
 
 Further references:
 
@@ -309,6 +313,7 @@ Creature state is stored on each local user profile:
 - `POST /auth/login`
 - `POST /auth/logout`
 - `GET /auth/me`
+- `PUT /users/{user_id}/question-mode`
 - `GET /admin/{admin_user_id}/users`
 - `POST /admin/{admin_user_id}/users`
 - `PATCH /admin/{admin_user_id}/users/{target_user_id}`
@@ -328,10 +333,13 @@ Creature state is stored on each local user profile:
 - `POST /practice/question`
 - `POST /practice/answer`
 - `POST /challenge/start`
+- `GET /challenge/{session_id}`
+- `POST /challenge/answer`
 - `POST /challenge/submit`
 - `GET /users/{user_id}/retention-assessments`
 - `POST /retention-assessments`
 - `POST /retention-assessments/{assessment_id}/start`
+- `POST /retention-assessments/{assessment_id}/answer`
 - `POST /retention-assessments/{assessment_id}/submit`
 - `GET /dashboard/{user_id}`
 

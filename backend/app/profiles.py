@@ -26,8 +26,16 @@ def clean_tables(tables: list[int]) -> list[int]:
 
 
 def parse_required_tables(user: User) -> list[int]:
+    return parse_table_list(user.required_tables)
+
+
+def parse_selected_tables(user: User) -> list[int]:
+    return parse_table_list(user.selected_tables)
+
+
+def parse_table_list(value: str | None) -> list[int]:
     try:
-        parsed = json.loads(user.required_tables or "[]")
+        parsed = json.loads(value or "[]")
     except (TypeError, json.JSONDecodeError):
         return []
     if not isinstance(parsed, list):
@@ -51,6 +59,8 @@ def user_payload(user: User) -> dict:
         "is_admin": bool(user.is_admin),
         "password_set": bool(user.password_hash),
         "required_tables": parse_required_tables(user),
+        "selected_tables": parse_selected_tables(user),
+        "question_mode": user.question_mode or "mixed",
     }
 
 

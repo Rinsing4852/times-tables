@@ -15,6 +15,7 @@ export function CreatureHome({
   selectedTables,
   onStartRetention,
   onOpenRetention,
+  canScheduleRetention,
 }: {
   creature: Creature | null;
   onStartPractice: (limit: number) => void;
@@ -25,6 +26,7 @@ export function CreatureHome({
   selectedTables: number[];
   onStartRetention: (assessment: RetentionAssessment) => void;
   onOpenRetention: () => void;
+  canScheduleRetention: boolean;
 }) {
   const [openedAt] = useState(() => Date.now());
   if (!creature) return <section className="panel">Loading companion...</section>;
@@ -37,6 +39,33 @@ export function CreatureHome({
     .sort((left, right) => left.getTime() - right.getTime());
   const rememberedFacts = selectedFacts.filter((cell) => cell.learning_state === "secure").length;
   const currentRetention = (learningDashboard?.retention_assessments || []).find((item) => item.status !== "completed");
+  const recommendedAction = currentRetention?.can_start
+    ? {
+        title: "Memory test ready",
+        description: `Complete the ${currentRetention.next_round_label || "next"} recall check without a countdown clock.`,
+        label: "Start memory test",
+        run: () => onStartRetention(currentRetention),
+      }
+    : dueFacts.length > 0
+      ? {
+          title: `${dueFacts.length} ${dueFacts.length === 1 ? "fact is" : "facts are"} ready to review`,
+          description: "A five-question review will help these facts stay in memory.",
+          label: "Review 5 facts",
+          run: () => onStartPractice(5),
+        }
+      : quests[0]
+        ? {
+            title: quests[0].title,
+            description: quests[0].description,
+            label: "Start recommended quest",
+            run: () => onStartQuest(quests[0]),
+          }
+        : {
+            title: "Quick Boost",
+            description: "Five adaptive questions chosen for useful practice.",
+            label: "Start 5 questions",
+            run: () => onStartPractice(5),
+          };
 
   function nextReviewLabel(date: Date | undefined) {
     if (!date) return "No reviews are waiting yet. New facts will be scheduled as you practise.";
@@ -53,18 +82,21 @@ export function CreatureHome({
     <section className="creatureHome">
       <div className="creatureCard">
         <div className={`creatureAvatarWrap habitat-${creatureSlug(creature.creature_type)}`}>
-          <CreatureAvatar type={creature.creature_type} stage={creature.stage} cosmetic={creature.selected_cosmetic} mega={creature.mega_evolution_active} />
+          <CreatureAvatar type={creature.creature_type} stage={creature.stage} cosmetic={creature.selected_cosmetic} mega={creature.mega_evolution_active} growthRank={creature.growth_rank} />
         </div>
         <div className="creatureInfo">
           <p className="eyebrow">{creature.creature_type}</p>
           <h2>{creature.creature_name}</h2>
-          <p className="stageLine">Level {creature.level} · {creature.stage}</p>
+          <p className="stageLine">Level {creature.level} · {creature.growth_title}</p>
           {creature.mega_evolution_active && <strong className="megaStatus">Mega Form active</strong>}
           <div className="xpBar" aria-label={`XP progress ${Math.round(creature.xp_progress * 100)} percent`}>
             <span style={{ width: `${Math.round(creature.xp_progress * 100)}%` }} />
           </div>
           <strong>{creature.xp} XP · {creature.xp_to_next_level} XP to next level</strong>
           {creature.next_stage && <p className="creatureStatus">Next stage: {creature.next_stage} in {creature.xp_to_next_stage} XP.</p>}
+          {!creature.next_stage && creature.next_growth_milestone_level > creature.level && (
+            <p className="creatureStatus">Next Champion rank at level {creature.next_growth_milestone_level} in {creature.xp_to_next_growth_milestone} XP.</p>
+          )}
           <div className="energyBar" aria-label={`Energy ${creature.energy} percent`}>
             <span style={{ width: `${creature.energy}%` }} />
           </div>
@@ -76,25 +108,37 @@ export function CreatureHome({
         </div>
       </div>
 
-      <div className="homeActions">
-        <button type="button" onClick={() => onStartPractice(5)}>Quick Boost<span>5 questions</span></button>
-        <button type="button" onClick={() => onStartPractice(10)}>Training Session<span>10 questions</span></button>
-        <button type="button" onClick={() => onStartChallenge(20)}>Challenge Round<span>20 questions</span></button>
-        <button
-          type="button"
-          className={`memoryTestAction ${currentRetention?.can_start ? "ready" : ""}`}
-          onClick={() => currentRetention?.can_start ? onStartRetention(currentRetention) : onOpenRetention()}
-        >
-          {currentRetention?.can_start ? "Start Memory Test" : "Memory Test"}
-          <span>
-            {currentRetention?.can_start
-              ? `${currentRetention.next_round_label || "Recall check"} ready`
-              : currentRetention
-                ? "View test schedule"
-                : "Set up or view tests"}
-          </span>
-        </button>
-      </div>
+      <section className="panel recommendedTraining">
+        <div>
+          <p className="eyebrow">Recommended training</p>
+          <h2>{recommendedAction.title}</h2>
+          <p>{recommendedAction.description}</p>
+        </div>
+        <button type="button" onClick={recommendedAction.run}>{recommendedAction.label}</button>
+      </section>
+
+      <details className="panel trainingChoices">
+        <summary>More training choices</summary>
+        <div className="homeActions">
+          <button type="button" onClick={() => onStartPractice(5)}>Quick Boost<span>5 questions</span></button>
+          <button type="button" onClick={() => onStartPractice(10)}>Training Session<span>10 questions</span></button>
+          <button type="button" onClick={() => onStartChallenge(20)}>Challenge Round<span>20 questions</span></button>
+          <button
+            type="button"
+            className={`memoryTestAction ${currentRetention?.can_start ? "ready" : ""}`}
+            onClick={() => currentRetention?.can_start ? onStartRetention(currentRetention) : onOpenRetention()}
+          >
+            {currentRetention?.can_start ? "Start Memory Test" : "Memory Test"}
+            <span>
+              {currentRetention?.can_start
+                ? `${currentRetention.next_round_label || "Recall check"} ready`
+                : currentRetention
+                  ? "View test schedule"
+                  : canScheduleRetention ? "Set up or view tests" : "View test schedule"}
+            </span>
+          </button>
+        </div>
+      </details>
 
       <section className={`panel memoryReview ${dueFacts.length > 0 ? "reviewReady" : ""}`}>
         <div>
@@ -127,11 +171,11 @@ export function CreatureHome({
         </section>
       )}
 
-      <section className="panel questSection">
-        <div className="sectionHeader">
+      <details className="panel questSection">
+        <summary>
           <h2>Training Quests</h2>
           <span className="quiet">{creature.creature_name} found some training quests.</span>
-        </div>
+        </summary>
         <div className="questGrid">
           {quests.slice(0, 4).map((quest) => (
             <article className="questCard" key={quest.quest_id}>
@@ -145,16 +189,16 @@ export function CreatureHome({
             </article>
           ))}
         </div>
-      </section>
+      </details>
     </section>
   );
 }
 
-export function CreatureAvatar({ type, stage, cosmetic = "starter-star", mega = false }: { type: string; stage: string; cosmetic?: string; mega?: boolean }) {
+export function CreatureAvatar({ type, stage, cosmetic = "starter-star", mega = false, growthRank = 0 }: { type: string; stage: string; cosmetic?: string; mega?: boolean; growthRank?: number }) {
   const displayedStage = mega ? "Mega" : stage;
   const stageAsset = creatureAsset(type, displayedStage);
   return (
-    <div className={`creatureAvatar ${type.toLowerCase().replaceAll(" ", "-")} stage-${displayedStage.toLowerCase()} ${cosmetic} ${mega ? "mega" : ""}`} role="img" aria-label={`${type} ${mega ? "temporary Mega Form" : `${stage} stage`}`}>
+    <div className={`creatureAvatar ${type.toLowerCase().replaceAll(" ", "-")} stage-${displayedStage.toLowerCase()} ${cosmetic} ${mega ? "mega" : ""} growth-rank-${Math.min(growthRank, 5)}`} role="img" aria-label={`${type} ${mega ? "temporary Mega Form" : `${stage} stage`}`}>
       <span className="creatureStageAsset" style={{ backgroundImage: `url(${stageAsset})` }} />
     </div>
   );
@@ -245,18 +289,19 @@ export function CreatureProfile({
     <section className="creatureProfile">
       <div className="creatureCard">
         <div className={`creatureAvatarWrap habitat-${creatureSlug(creature.creature_type)}`}>
-          <CreatureAvatar type={creature.creature_type} stage={creature.stage} cosmetic={creature.selected_cosmetic} mega={creature.mega_evolution_active} />
+          <CreatureAvatar type={creature.creature_type} stage={creature.stage} cosmetic={creature.selected_cosmetic} mega={creature.mega_evolution_active} growthRank={creature.growth_rank} />
         </div>
         <div className="creatureInfo">
           <p className="eyebrow">{creature.creature_type}</p>
           <h2>{creature.creature_name}</h2>
-          <p className="stageLine">Level {creature.level} · {creature.stage}</p>
+          <p className="stageLine">Level {creature.level} · {creature.growth_title}</p>
           {creature.mega_evolution_active && <strong className="megaStatus">Temporary Mega Form active</strong>}
           <div className="xpBar" aria-label={`XP progress ${Math.round(creature.xp_progress * 100)} percent`}>
             <span style={{ width: `${Math.round(creature.xp_progress * 100)}%` }} />
           </div>
           <strong>{creature.xp} XP · {creature.xp_to_next_level} XP to Level {creature.level + 1}</strong>
           {creature.next_stage && <p className="creatureStatus">Next evolution: {creature.next_stage} at Level {creature.next_stage_level} · {creature.xp_to_next_stage} XP to go.</p>}
+          {!creature.next_stage && <p className="creatureStatus">Next Champion rank at Level {creature.next_growth_milestone_level} · {creature.xp_to_next_growth_milestone} XP to go.</p>}
           <p className="creatureStatus">The creature grows stronger as your maths brain grows stronger.</p>
         </div>
       </div>

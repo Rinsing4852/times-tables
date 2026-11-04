@@ -55,9 +55,20 @@ def xp_threshold_for_level(level: int) -> int:
 
 def level_for_xp(xp: int) -> int:
     level = 1
-    while level < 50 and xp >= xp_threshold_for_level(level + 1):
+    while level < 500 and xp >= xp_threshold_for_level(level + 1):
         level += 1
     return level
+
+
+def growth_rank_for_level(level: int) -> int:
+    if level < 11:
+        return 0
+    return 1 + ((level - 11) // 5)
+
+
+def growth_title_for_level(level: int) -> str:
+    rank = growth_rank_for_level(level)
+    return f"Champion Rank {rank}" if rank else stage_for_level(level)
 
 
 def stage_for_level(level: int) -> str:
@@ -222,6 +233,9 @@ def creature_payload(
     next_level_threshold = xp_threshold_for_level(level + 1)
     next_stage_level = next((candidate for candidate in range(level + 1, 51) if stage_for_level(candidate) != current_stage), None)
     next_stage_xp = xp_threshold_for_level(next_stage_level) if next_stage_level else None
+    growth_rank = growth_rank_for_level(level)
+    next_rank_level = 11 if level < 11 else 11 + (growth_rank * 5)
+    next_rank_xp = xp_threshold_for_level(next_rank_level)
     weekly_days = weekly_days_for_current_week(user)
     unlocked_keys = cosmetic_list(user)
     now = datetime.now(timezone.utc)
@@ -234,6 +248,10 @@ def creature_payload(
         "energy": current_energy,
         "stage": current_stage,
         "level": level,
+        "growth_rank": growth_rank,
+        "growth_title": growth_title_for_level(level),
+        "next_growth_milestone_level": next_rank_level,
+        "xp_to_next_growth_milestone": max(next_rank_xp - current_xp, 0),
         "xp": current_xp,
         "xp_gained": xp_gained,
         "xp_current_level": current_level_threshold,

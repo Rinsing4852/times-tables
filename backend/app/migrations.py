@@ -33,6 +33,8 @@ def _add_missing_user_columns(engine: Engine) -> None:
         "last_weekly_reset_at": "ALTER TABLE users ADD COLUMN last_weekly_reset_at DATETIME",
         "weekly_goal_awarded_week": "ALTER TABLE users ADD COLUMN weekly_goal_awarded_week VARCHAR(16) NOT NULL DEFAULT ''",
         "required_tables": "ALTER TABLE users ADD COLUMN required_tables VARCHAR(64) NOT NULL DEFAULT '[]'",
+        "selected_tables": "ALTER TABLE users ADD COLUMN selected_tables VARCHAR(64) NOT NULL DEFAULT '[]'",
+        "question_mode": "ALTER TABLE users ADD COLUMN question_mode VARCHAR(16) NOT NULL DEFAULT 'mixed'",
         "mega_evolution_until": "ALTER TABLE users ADD COLUMN mega_evolution_until DATETIME",
     }
     with engine.begin() as connection:
@@ -184,6 +186,33 @@ def _add_retention_active_index(engine: Engine) -> None:
         )
 
 
+def _add_user_selected_tables(engine: Engine) -> None:
+    inspector = inspect(engine)
+    if not inspector.has_table("users"):
+        return
+    existing = {column["name"] for column in inspector.get_columns("users")}
+    if "selected_tables" not in existing:
+        with engine.begin() as connection:
+            connection.execute(text("ALTER TABLE users ADD COLUMN selected_tables VARCHAR(64) NOT NULL DEFAULT '[]'"))
+
+
+def _add_preferences_and_resumable_answers(engine: Engine) -> None:
+    inspector = inspect(engine)
+    if inspector.has_table("users"):
+        user_columns = {column["name"] for column in inspector.get_columns("users")}
+        if "question_mode" not in user_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE users ADD COLUMN question_mode VARCHAR(16) NOT NULL DEFAULT 'mixed'"))
+    inspector = inspect(engine)
+    if inspector.has_table("learning_session_questions"):
+        question_columns = {column["name"] for column in inspector.get_columns("learning_session_questions")}
+        with engine.begin() as connection:
+            if "answer_given" not in question_columns:
+                connection.execute(text("ALTER TABLE learning_session_questions ADD COLUMN answer_given VARCHAR(32)"))
+            if "response_time_ms" not in question_columns:
+                connection.execute(text("ALTER TABLE learning_session_questions ADD COLUMN response_time_ms INTEGER"))
+
+
 MIGRATIONS: list[Migration] = [
     (1, _add_missing_user_columns),
     (2, _add_first_attempt_speed_columns),
@@ -191,6 +220,8 @@ MIGRATIONS: list[Migration] = [
     (4, _add_fact_learning_state),
     (5, _create_retention_assessment_tables),
     (6, _add_retention_active_index),
+    (7, _add_user_selected_tables),
+    (8, _add_preferences_and_resumable_answers),
 ]
 
 

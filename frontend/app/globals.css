@@ -1251,6 +1251,54 @@ h2 {
   text-shadow: 0 2px 0 rgba(24, 33, 47, 0.18);
 }
 
+.creatureAvatar.growth-rank-2 .creatureStageAsset {
+  filter: drop-shadow(0 18px 12px rgba(22, 35, 55, 0.16)) drop-shadow(0 0 12px rgba(35, 145, 178, 0.42));
+}
+
+.creatureAvatar.growth-rank-3 .creatureStageAsset {
+  filter: drop-shadow(0 18px 12px rgba(22, 35, 55, 0.16)) drop-shadow(0 0 16px rgba(113, 76, 179, 0.48));
+}
+
+.creatureAvatar.growth-rank-4 .creatureStageAsset,
+.creatureAvatar.growth-rank-5 .creatureStageAsset {
+  filter: drop-shadow(0 18px 12px rgba(22, 35, 55, 0.16)) drop-shadow(0 0 18px rgba(215, 145, 21, 0.58));
+}
+
+.recommendedTraining {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+  border-left: 6px solid #197f75;
+  background: #edf8f5;
+}
+
+.recommendedTraining h2,
+.recommendedTraining p {
+  margin-bottom: 6px;
+}
+
+.recommendedTraining button {
+  min-height: 58px;
+}
+
+.trainingChoices > summary,
+.questSection > summary {
+  cursor: pointer;
+  font-weight: 900;
+  list-style-position: inside;
+}
+
+.trainingChoices[open] > summary,
+.questSection[open] > summary {
+  margin-bottom: 14px;
+}
+
+.questSection > summary h2 {
+  display: inline;
+  margin-right: 8px;
+}
+
 .homeActions {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -1333,8 +1381,19 @@ h2 {
 }
 
 .questSection {
-  display: grid;
-  gap: 12px;
+  display: block;
+}
+
+.nextLearningStep {
+  border-left: 4px solid #197f75;
+  background: #edf8f5;
+  padding: 12px 14px;
+}
+
+.weeklySummary {
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 20px;
+  padding-bottom: 20px;
 }
 
 .questGrid {
@@ -1770,6 +1829,19 @@ h2 {
 
 .retentionHelp[open] summary {
   margin-bottom: 12px;
+}
+
+.retentionEmptyState {
+  display: grid;
+  gap: 6px;
+  border-left: 5px solid #7357a8;
+  background: #f7f4fb;
+  padding: 14px;
+}
+
+.retentionEmptyState p {
+  margin: 0;
+  color: var(--muted);
 }
 
 .retentionSetup {
@@ -2632,6 +2704,12 @@ h2 {
 
   .challengeSetupPage {
     padding: 20px 14px;
+  }
+
+  .recommendedTraining,
+  .memoryReview,
+  .retentionHomeCard {
+    grid-template-columns: 1fr;
   }
 
   .creatureCard {
