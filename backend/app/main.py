@@ -71,6 +71,7 @@ from .learning import (
 )
 from .profiles import clean_tables, effective_tables, parse_required_tables, parse_selected_tables, reset_user_progress, user_payload
 from .quests import APP_VERSION, ensure_available_quests, quest_payload, quest_questions
+from .recommendations import next_session_prescription, table_mastery_summary
 from .reports import evaluation_csv, retention_summary
 from .retention import assessment_payload, build_question_specs
 from .scheduler import choose_practice_fact, learning_state, review_is_due
@@ -237,7 +238,12 @@ def retention_assessments_for_user(db: Session, user_id: int) -> list[RetentionA
         db.scalars(
             select(RetentionAssessment)
             .where(RetentionAssessment.user_id == user_id)
-            .options(selectinload(RetentionAssessment.rounds).selectinload(RetentionAssessmentRound.attempts))
+            .options(
+                selectinload(RetentionAssessment.rounds)
+                .selectinload(RetentionAssessmentRound.attempts)
+                .selectinload(RetentionAssessmentAttempt.question)
+                .selectinload(RetentionAssessmentQuestion.fact)
+            )
             .order_by(desc(RetentionAssessment.created_at), desc(RetentionAssessment.id))
         ).all()
     )
@@ -253,26 +259,23 @@ def learning_question_payload(question: LearningSessionQuestion) -> dict:
 
 
 def next_focus_recommendation(db: Session, user_id: int, limit: int = 2) -> dict:
-    stats = list(
-        db.scalars(
-            select(FactStat).where(FactStat.user_id == user_id, FactStat.first_attempt_total > 0)
-        ).all()
-    )
-    if not stats:
-        return {"facts": [], "message": "Keep practising to discover the next useful facts to strengthen."}
-    facts_by_id = {
-        fact.id: fact for fact in db.scalars(select(Fact).where(Fact.id.in_([stat.fact_id for stat in stats]))).all()
-    }
+    user = get_user(db, user_id)
+    facts = list(db.scalars(select(Fact).order_by(Fact.a, Fact.b)).all())
+    stats = list(db.scalars(select(FactStat).where(FactStat.user_id == user_id)).all())
+    stats_by_fact_id = {stat.fact_id: stat for stat in stats}
     recent_by_fact_id = recent_attempts_by_fact(db, user_id)
-    ranked = sorted(
-        stats,
-        key=lambda stat: priority_score(stat, recent_attempts=recent_by_fact_id.get(stat.fact_id, [])),
-        reverse=True,
+    mastery = table_mastery_summary(facts, stats_by_fact_id, recent_by_fact_id)
+    assessments = [assessment_payload(item) for item in retention_assessments_for_user(db, user_id)]
+    selected_tables = clean_tables(parse_selected_tables(user) + parse_required_tables(user)) or [2, 3, 4, 5]
+    prescription = next_session_prescription(
+        selected_tables,
+        facts,
+        stats_by_fact_id,
+        recent_by_fact_id,
+        mastery,
+        assessments,
     )
-    labels = [f"{facts_by_id[stat.fact_id].a}×{facts_by_id[stat.fact_id].b}" for stat in ranked if stat.fact_id in facts_by_id][:limit]
-    if not labels:
-        return {"facts": [], "message": "Keep building a steady practice rhythm."}
-    return {"facts": labels, "message": f"A useful next step is to strengthen {' and '.join(labels)}."}
+    return {"facts": prescription["facts"][:limit], "message": prescription["message"]}
 
 
 def login_failure_key(request: Request, user_id: int) -> tuple[str, int]:
@@ -646,12 +649,14 @@ def update_creature_cosmetic(user_id: int, payload: CreatureCosmeticUpdate, db: 
 @app.get("/users/{user_id}/quests")
 def list_training_quests(user_id: int, db: Session = Depends(get_db), current_user: User = Depends(authenticated_user)) -> dict:
     authorize_profile(current_user, user_id)
-    get_user(db, user_id)
-    facts = db.scalars(select(Fact).order_by(Fact.a, Fact.b)).all()
+    user = get_user(db, user_id)
+    selected_tables = clean_tables(parse_selected_tables(user) + parse_required_tables(user)) or [2, 3, 4, 5]
+    facts = facts_for_tables(db, selected_tables)
     stats = db.scalars(select(FactStat).where(FactStat.user_id == user_id)).all()
     stats_by_fact_id = {stat.fact_id: stat for stat in stats}
+    recent_by_fact_id = recent_attempts_by_fact(db, user_id)
     existing = db.scalars(select(TrainingQuest).where(TrainingQuest.user_id == user_id).order_by(desc(TrainingQuest.generated_at))).all()
-    quests = ensure_available_quests(user_id, existing, facts, stats_by_fact_id)
+    quests = ensure_available_quests(user_id, existing, facts, stats_by_fact_id, recent_by_fact_id)
     for quest in quests:
         if quest.id is None:
             db.add(quest)
@@ -1410,7 +1415,7 @@ def submit_retention_assessment(
 @app.get("/dashboard/{user_id}")
 def dashboard(user_id: int, db: Session = Depends(get_db), current_user: User = Depends(authenticated_user)) -> dict:
     authorize_profile(current_user, user_id)
-    get_user(db, user_id)
+    user = get_user(db, user_id)
     facts = db.scalars(select(Fact).order_by(Fact.a, Fact.b)).all()
     stats = db.scalars(select(FactStat).where(FactStat.user_id == user_id)).all()
     stats_by_fact_id = {stat.fact_id: stat for stat in stats}
@@ -1584,7 +1589,11 @@ def dashboard(user_id: int, db: Session = Depends(get_db), current_user: User = 
             )
         ).all()
     )
+    assessment_summaries = [assessment_payload(item) for item in retention_assessments_for_user(db, user_id)[:5]]
+    mastery = table_mastery_summary(facts, stats_by_fact_id, recent_by_fact_id)
+    selected_tables = clean_tables(parse_selected_tables(user) + parse_required_tables(user)) or [2, 3, 4, 5]
     return {
+        "selected_tables": selected_tables,
         "totals": totals,
         "cells": cells,
         "strengths": strengths,
@@ -1596,7 +1605,14 @@ def dashboard(user_id: int, db: Session = Depends(get_db), current_user: User = 
         "progress_over_time": progress_over_time,
         "weekly_summary": weekly_summary,
         "retention": retention_summary(facts, stats_by_fact_id, due_review_attempts),
-        "retention_assessments": [
-            assessment_payload(item) for item in retention_assessments_for_user(db, user_id)[:5]
-        ],
+        "retention_assessments": assessment_summaries,
+        "table_mastery": mastery,
+        "next_session": next_session_prescription(
+            selected_tables,
+            facts,
+            stats_by_fact_id,
+            recent_by_fact_id,
+            mastery,
+            assessment_summaries,
+        ),
     }

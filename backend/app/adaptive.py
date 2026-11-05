@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from math import exp
 from random import choices
+from statistics import median
 
 from .models import Fact, FactStat, QuestionAttempt
 
@@ -59,16 +60,27 @@ def normalize_answer(answer: str) -> int | None:
         return None
 
 
-def recent_attempt_score(recent_attempts: list[QuestionAttempt]) -> float | None:
+def recent_first_attempt_metrics(recent_attempts: list[QuestionAttempt], window_size: int = 10) -> dict | None:
     first_attempts = [attempt for attempt in recent_attempts if attempt.attempt_number == 1]
     if not first_attempts:
         return None
-    window = first_attempts[:10]
+    window = first_attempts[:window_size]
     total = len(window)
-    errors = sum(1 for attempt in window if not attempt.is_correct)
-    avg_ms = sum(attempt.response_time_ms for attempt in window) / total
-    error_component = errors / total
-    speed_component = min(max((avg_ms - 2500) / 5000, 0), 1)
+    correct = sum(1 for attempt in window if attempt.is_correct)
+    return {
+        "attempts": total,
+        "correct": correct,
+        "accuracy": correct / total,
+        "median_response_time_ms": median(attempt.response_time_ms for attempt in window),
+    }
+
+
+def recent_attempt_score(recent_attempts: list[QuestionAttempt]) -> float | None:
+    metrics = recent_first_attempt_metrics(recent_attempts)
+    if not metrics:
+        return None
+    error_component = 1 - metrics["accuracy"]
+    speed_component = min(max((metrics["median_response_time_ms"] - 2500) / 5000, 0), 1)
     return error_component + speed_component
 
 
@@ -99,11 +111,15 @@ def priority_score(stat: FactStat | None, now: datetime | None = None, recent_at
         hours_since_failure = max((now - as_aware_utc(stat.last_failed_at)).total_seconds() / 3600, 0)
         recent_failure_boost = 0.8 * exp(-hours_since_failure / 24)
 
+    recent_metrics = recent_first_attempt_metrics(recent_attempts or [])
     mastery_discount = min((stat.current_streak or 0) * 0.12, 0.8)
+    if recent_metrics:
+        mastery_discount *= recent_metrics["accuracy"]
     base_score = error_rate + slowness_score + spacing_score + recent_failure_boost - mastery_discount
     recent_score = recent_attempt_score(recent_attempts or [])
     if recent_score is not None:
-        base_score = (base_score * 0.55) + (recent_score * 0.45) + (spacing_score * 0.2)
+        recent_weight = min(recent_metrics["attempts"] / 10, 1) * 0.65
+        base_score = (base_score * (1 - recent_weight)) + (recent_score * recent_weight) + (spacing_score * 0.2)
     return max(0.08, base_score)
 
 

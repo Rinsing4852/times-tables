@@ -37,6 +37,34 @@ def round_metrics(round_record: RetentionAssessmentRound, question_count: int) -
     attempts = list(round_record.attempts)
     average_time_ms = round(round_record.total_time_ms / question_count) if question_count else 0
     median_time_ms = round(median(attempt.response_time_ms for attempt in attempts)) if attempts else 0
+
+    def grouped_results(group_key) -> list[dict]:
+        groups: dict[int, list] = {}
+        for attempt in attempts:
+            groups.setdefault(group_key(attempt), []).append(attempt)
+        results = []
+        for key, rows in sorted(groups.items()):
+            correct = sum(int(row.is_correct) for row in rows)
+            results.append(
+                {
+                    "key": key,
+                    "questions": len(rows),
+                    "correct": correct,
+                    "accuracy": round(correct / len(rows), 3),
+                    "median_time_ms": round(median(row.response_time_ms for row in rows)),
+                }
+            )
+        return results
+
+    fact_results = grouped_results(lambda attempt: attempt.question.fact_id)
+    for result in fact_results:
+        question = next(attempt.question for attempt in attempts if attempt.question.fact_id == result["key"])
+        result["fact_id"] = result.pop("key")
+        result["label"] = f"{question.fact.a}×{question.fact.b}"
+        result["table"] = question.fact.a
+    table_results = grouped_results(lambda attempt: attempt.question.fact.a)
+    for result in table_results:
+        result["table"] = result.pop("key")
     return {
         "round_id": round_record.id,
         "round_key": round_record.round_key,
@@ -50,6 +78,8 @@ def round_metrics(round_record: RetentionAssessmentRound, question_count: int) -
         "total_time_ms": round_record.total_time_ms,
         "average_time_ms": average_time_ms,
         "median_time_ms": median_time_ms,
+        "fact_results": fact_results,
+        "table_results": table_results,
     }
 
 
@@ -72,6 +102,19 @@ def assessment_payload(assessment: RetentionAssessment, now: datetime | None = N
             if baseline and summary["round_key"] != "baseline"
             else None
         )
+        baseline_tables = {item["table"]: item for item in baseline["table_results"]} if baseline else {}
+        for table_result in summary["table_results"]:
+            baseline_table = baseline_tables.get(table_result["table"])
+            table_result["accuracy_change"] = (
+                round(table_result["accuracy"] - baseline_table["accuracy"], 3)
+                if baseline_table and summary["round_key"] != "baseline"
+                else None
+            )
+            table_result["median_time_change_ms"] = (
+                table_result["median_time_ms"] - baseline_table["median_time_ms"]
+                if baseline_table and summary["round_key"] != "baseline"
+                else None
+            )
 
     active_round = next((item for item in rounds if item.status == "active"), None)
     if active_round:

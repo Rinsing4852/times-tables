@@ -240,6 +240,21 @@ def test_discovery_quest_can_unlock_temporary_mega_form(api) -> None:
     assert result["creature"]["xp_gained"] >= 60
 
 
+def test_quests_only_target_the_profiles_selected_tables(api) -> None:
+    client, testing_session = api
+    admin = create_admin(client)
+    login(client, admin["id"], "246824")
+    selected = client.put(f"/users/{admin['id']}/selected-tables", json={"tables": [7]})
+    assert selected.status_code == 200
+
+    quests = client.get(f"/users/{admin['id']}/quests").json()["quests"]
+    target_ids = {fact_id for quest in quests for fact_id in quest["target_fact_ids"]}
+    with testing_session() as db:
+        target_tables = {db.get(Fact, fact_id).a for fact_id in target_ids}
+
+    assert target_tables == {7}
+
+
 def test_dashboard_keeps_first_recall_and_second_try_recovery_separate(api) -> None:
     client, testing_session = api
     admin = create_admin(client)
@@ -427,6 +442,11 @@ def test_dashboard_speed_uses_recent_median_and_has_weekly_summary(api) -> None:
     assert cell["average_time_ms"] == 2000
     assert dashboard["weekly_summary"]["answers"] == 3
     assert dashboard["weekly_summary"]["median_time_ms"] == 2000
+    table_mastery = next(item for item in dashboard["table_mastery"] if item["table"] == 4)
+    assert table_mastery["recent_accuracy"] == 1.0
+    assert table_mastery["recent_median_time_ms"] == 2000
+    assert dashboard["next_session"]["action"] == "practice"
+    assert dashboard["next_session"]["tables"]
 
 
 def test_retention_check_repeats_the_fixed_test_at_four_and_eight_weeks(api) -> None:
@@ -468,6 +488,17 @@ def test_retention_check_repeats_the_fixed_test_at_four_and_eight_weeks(api) -> 
     assert baseline_summary["rounds"][0]["accuracy"] == 0.6
     assert baseline_summary["rounds"][0]["average_time_ms"] == 3000
     assert baseline_summary["rounds"][0]["median_time_ms"] == 3000
+    assert baseline_summary["rounds"][0]["table_results"] == [
+        {
+            "table": 4,
+            "questions": 5,
+            "correct": 3,
+            "accuracy": 0.6,
+            "median_time_ms": 3000,
+            "accuracy_change": None,
+            "median_time_change_ms": None,
+        }
+    ]
     baseline_completed_at = datetime.fromisoformat(baseline_summary["baseline_completed_at"])
     assert datetime.fromisoformat(baseline_summary["week4_due_at"]) - baseline_completed_at == timedelta(days=28)
     assert datetime.fromisoformat(baseline_summary["week8_due_at"]) - baseline_completed_at == timedelta(days=56)

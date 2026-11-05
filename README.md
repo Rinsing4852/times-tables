@@ -1,6 +1,6 @@
 # Recall Forge
 
-Recall Forge 0.11.0 is a self-hosted times tables practice app for local use. It is intentionally focused: authenticated local profiles, adaptive practice, scheduled review, resumable long-term retention checks and challenges, smart training quests, heat maps, SQLite, no external accounts, no analytics, and no AI API. It also includes a light companion creature theme where practice gives the creature energy and XP while the learning engine stays focused on recall and spaced practice. Each species has a distinct five-stage evolution path, continuing Champion ranks, and a dedicated transformation moment, but remains a calm maths companion rather than a needy care system.
+Recall Forge 0.12.0 is a self-hosted times tables practice app for local use. It is intentionally focused: authenticated local profiles, adaptive practice based on recent recall, table mastery, scheduled review, resumable long-term retention checks and challenges, smart training quests, heat maps, SQLite, no external accounts, no analytics, and no AI API. It also includes a light companion creature theme where practice gives the creature energy and XP while the learning engine stays focused on recall and spaced practice. Each species has a distinct five-stage evolution path, continuing Champion ranks, and a dedicated transformation moment, but remains a calm maths companion rather than a needy care system.
 
 ## Stack
 
@@ -129,8 +129,8 @@ To make the stack manageable through Dockge:
 For controlled updates, replace `latest` on both `image:` lines with the same version, for example:
 
 ```yaml
-image: ghcr.io/rinsing4852/recall-forge-backend:0.11.0
-image: ghcr.io/rinsing4852/recall-forge-frontend:0.11.0
+image: ghcr.io/rinsing4852/recall-forge-backend:0.12.0
+image: ghcr.io/rinsing4852/recall-forge-frontend:0.12.0
 ```
 
 Keep both services on the same version. Take an admin database backup before rolling back across versions that include schema changes.
@@ -255,7 +255,7 @@ priority_score = error_rate + slowness_score + spacing_score + recent_failure_bo
 ```
 
 Weak, slow, recently failed, or stale facts are selected more often. Consistently correct and fast facts gradually appear less often.
-Recent performance uses the latest attempts for each fact, so strong facts appear less often while never disappearing entirely. Speed reporting uses the median of up to 10 recent first answers so one interruption does not permanently distort a fact.
+Recent performance uses the latest 10 first attempts for each fact, so genuine improvement changes practice and quest selection while strong facts appear less often without disappearing entirely. Speed reporting uses the recent median so one interruption does not permanently distort a fact. The dashboard groups facts into table-level mastery states, and the backend recommends one next session: due review, new learning, interleaved maintenance, or a scheduled memory test.
 
 The staged plan for adding explicit acquisition, scheduled review, and retention measurement is documented in [docs/learning-roadmap.md](docs/learning-roadmap.md).
 The longer-term, non-punitive companion plan is documented in [docs/creature-progression-roadmap.md](docs/creature-progression-roadmap.md).

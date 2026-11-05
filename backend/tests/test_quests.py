@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from app.models import Fact, FactStat, TrainingQuest
+from app.models import Fact, FactStat, QuestionAttempt, TrainingQuest
 from app.quests import ensure_available_quests, quest_completion_is_valid, quest_definitions, quest_questions, weakest_facts
 
 
@@ -16,6 +16,20 @@ def test_weakest_facts_prioritise_incorrect_and_slow() -> None:
     }
 
     assert weakest_facts(facts, stats, 1)[0].id == 1
+
+
+def test_quest_targets_follow_recent_improvement_and_difficulty() -> None:
+    facts = [make_fact(1, 6, 7), make_fact(2, 6, 8)]
+    stats = {
+        1: FactStat(fact_id=1, first_attempt_correct=2, first_attempt_total=10, current_streak=0),
+        2: FactStat(fact_id=2, first_attempt_correct=10, first_attempt_total=10, current_streak=10),
+    }
+    recent = {
+        1: [QuestionAttempt(is_correct=True, attempt_number=1, response_time_ms=1400) for _ in range(10)],
+        2: [QuestionAttempt(is_correct=False, attempt_number=1, response_time_ms=6500) for _ in range(10)],
+    }
+
+    assert weakest_facts(facts, stats, 1, recent)[0].id == 2
 
 
 def test_quest_definitions_include_core_training_types() -> None:

@@ -38,7 +38,10 @@ export function DashboardView({
   onStartRetention: (assessment: RetentionAssessment) => void;
 }) {
   const [view, setView] = useState<DashboardSection>(initialView);
-  const selectedTables = useMemo(() => [...tables].sort((a, b) => a - b), [tables]);
+  const selectedTables = useMemo(
+    () => [...(dashboard?.selected_tables?.length ? dashboard.selected_tables : tables)].sort((a, b) => a - b),
+    [dashboard?.selected_tables, tables],
+  );
   const selectedCells = useMemo(() => (dashboard?.cells || []).filter((cell) => selectedTables.includes(cell.a)), [dashboard, selectedTables]);
   const selectedTotals = useMemo(() => {
     const correct = selectedCells.reduce((sum, cell) => sum + cell.correct_count, 0);
@@ -54,6 +57,10 @@ export function DashboardView({
   const selectedWeaknesses = useMemo(
     () => selectedCells.filter((cell) => cell.accuracy !== null).sort((a, b) => b.priority_score - a.priority_score).slice(0, 5),
     [selectedCells],
+  );
+  const selectedMastery = useMemo(
+    () => (dashboard?.table_mastery || []).filter((item) => selectedTables.includes(item.table)),
+    [dashboard, selectedTables],
   );
 
   useEffect(() => setView(initialView), [initialView, profileName]);
@@ -88,6 +95,19 @@ export function DashboardView({
             <Metric label="Accuracy" value={selectedTotals.accuracy === null ? "-" : `${Math.round(selectedTotals.accuracy * 100)}%`} />
           </div>
           <p className="quiet">Accuracy uses first answers. Second-try fixes are tracked separately: {selectedTotals.secondAttemptCorrect}.</p>
+          <section className="masteryOverview">
+            <div className="sectionHeader"><div><p className="eyebrow">Learning journey</p><h2>Table mastery</h2></div></div>
+            <p className="nextLearningStep"><strong>Best next session:</strong> {dashboard.next_session.message}</p>
+            <div className="tableStatsGrid">
+              {selectedMastery.map((item) => (
+                <div className={`tableStat mastery-${item.status}`} key={item.table}>
+                  <strong>{item.table}×</strong>
+                  <span>{item.secure_facts}/{item.total_facts} secure</span>
+                  <small>{item.status.replace("_", " ")} · {item.due_facts} due</small>
+                </div>
+              ))}
+            </div>
+          </section>
           <div className="split"><FactList title="Strengths" facts={selectedStrengths} /><FactList title="Weaknesses" facts={selectedWeaknesses} /></div>
         </>
       )}
@@ -243,6 +263,19 @@ function RetentionAssessments({
                           ? "Starting point"
                           : `${round.accuracy_change >= 0 ? "+" : ""}${Math.round(round.accuracy_change * 100)} percentage points · ${round.average_time_change_ms !== null && round.average_time_change_ms < 0 ? `${formatMs(Math.abs(round.average_time_change_ms))} faster` : `${formatMs(round.average_time_change_ms || 0)} slower`}`}
                       </small>
+                      {round.table_results.length > 0 && (
+                        <details className="retentionBreakdown">
+                          <summary>Results by table</summary>
+                          <ul className="plainList">
+                            {round.table_results.map((table) => (
+                              <li key={`${round.round_id}-${table.table}`}>
+                                {table.table}×: {Math.round(table.accuracy * 100)}% · {formatMs(table.median_time_ms)} median
+                                {table.accuracy_change !== null && ` · ${table.accuracy_change >= 0 ? "+" : ""}${Math.round(table.accuracy_change * 100)} points from baseline`}
+                              </li>
+                            ))}
+                          </ul>
+                        </details>
+                      )}
                     </div>
                   ))}
                 </div>

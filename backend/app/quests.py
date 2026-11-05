@@ -5,12 +5,12 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from random import choice, shuffle
 
-from .adaptive import as_aware_utc, priority_score, question_for_fact
+from .adaptive import as_aware_utc, priority_score, question_for_fact, recent_first_attempt_metrics
 from .config import local_date
-from .models import Fact, FactStat, TrainingQuest
+from .models import Fact, FactStat, QuestionAttempt, TrainingQuest
 
 
-APP_VERSION = "0.11.0"
+APP_VERSION = "0.12.0"
 
 
 @dataclass(frozen=True)
@@ -38,7 +38,10 @@ def parse_fact_ids(value: str | None) -> list[int]:
     return [int(item) for item in parsed if isinstance(item, int)]
 
 
-def stat_accuracy(stat: FactStat | None) -> float | None:
+def stat_accuracy(stat: FactStat | None, recent_attempts: list[QuestionAttempt] | None = None) -> float | None:
+    recent = recent_first_attempt_metrics(recent_attempts or [])
+    if recent and recent["attempts"] >= 3:
+        return recent["accuracy"]
     if not stat:
         return None
     total = stat.first_attempt_total or (stat.correct_count + stat.incorrect_count)
@@ -48,7 +51,10 @@ def stat_accuracy(stat: FactStat | None) -> float | None:
     return correct / total
 
 
-def stat_avg_ms(stat: FactStat | None) -> float | None:
+def stat_avg_ms(stat: FactStat | None, recent_attempts: list[QuestionAttempt] | None = None) -> float | None:
+    recent = recent_first_attempt_metrics(recent_attempts or [])
+    if recent and recent["attempts"] >= 3:
+        return recent["median_response_time_ms"]
     if not stat:
         return None
     if stat.first_attempt_response_count:
@@ -58,8 +64,18 @@ def stat_avg_ms(stat: FactStat | None) -> float | None:
     return None
 
 
-def weakest_facts(facts: list[Fact], stats_by_fact_id: dict[int, FactStat], limit: int) -> list[Fact]:
-    return sorted(facts, key=lambda fact: priority_score(stats_by_fact_id.get(fact.id)), reverse=True)[:limit]
+def weakest_facts(
+    facts: list[Fact],
+    stats_by_fact_id: dict[int, FactStat],
+    limit: int,
+    recent_attempts_by_fact_id: dict[int, list[QuestionAttempt]] | None = None,
+) -> list[Fact]:
+    recent = recent_attempts_by_fact_id or {}
+    return sorted(
+        facts,
+        key=lambda fact: priority_score(stats_by_fact_id.get(fact.id), recent_attempts=recent.get(fact.id, [])),
+        reverse=True,
+    )[:limit]
 
 
 def recent_mistake_facts(facts: list[Fact], stats_by_fact_id: dict[int, FactStat], limit: int) -> list[Fact]:
@@ -71,21 +87,34 @@ def recent_mistake_facts(facts: list[Fact], stats_by_fact_id: dict[int, FactStat
     )[:limit]
 
 
-def slower_but_accurate_facts(facts: list[Fact], stats_by_fact_id: dict[int, FactStat], limit: int) -> list[Fact]:
+def slower_but_accurate_facts(
+    facts: list[Fact],
+    stats_by_fact_id: dict[int, FactStat],
+    limit: int,
+    recent_attempts_by_fact_id: dict[int, list[QuestionAttempt]] | None = None,
+) -> list[Fact]:
+    recent = recent_attempts_by_fact_id or {}
     candidates = []
     for fact in facts:
         stat = stats_by_fact_id.get(fact.id)
-        accuracy = stat_accuracy(stat)
-        avg_ms = stat_avg_ms(stat)
+        accuracy = stat_accuracy(stat, recent.get(fact.id, []))
+        avg_ms = stat_avg_ms(stat, recent.get(fact.id, []))
         if accuracy is not None and avg_ms is not None and accuracy >= 0.75:
             candidates.append((fact, avg_ms))
     return [fact for fact, _ in sorted(candidates, key=lambda item: item[1], reverse=True)[:limit]]
 
 
-def table_to_strengthen(facts: list[Fact], stats_by_fact_id: dict[int, FactStat]) -> int:
+def table_to_strengthen(
+    facts: list[Fact],
+    stats_by_fact_id: dict[int, FactStat],
+    recent_attempts_by_fact_id: dict[int, list[QuestionAttempt]] | None = None,
+) -> int:
+    recent = recent_attempts_by_fact_id or {}
     table_scores = {}
     for fact in facts:
-        table_scores.setdefault(fact.a, []).append(priority_score(stats_by_fact_id.get(fact.id)))
+        table_scores.setdefault(fact.a, []).append(
+            priority_score(stats_by_fact_id.get(fact.id), recent_attempts=recent.get(fact.id, []))
+        )
     if not table_scores:
         return 2
     return max(table_scores.items(), key=lambda item: sum(item[1]) / len(item[1]))[0]
@@ -106,19 +135,30 @@ def facts_without_data(facts: list[Fact], stats_by_fact_id: dict[int, FactStat])
     return [fact for fact in facts if stat_accuracy(stats_by_fact_id.get(fact.id)) is None]
 
 
-def accuracy_band_definitions(facts: list[Fact], stats_by_fact_id: dict[int, FactStat]) -> list[QuestDefinition]:
+def accuracy_band_definitions(
+    facts: list[Fact],
+    stats_by_fact_id: dict[int, FactStat],
+    recent_attempts_by_fact_id: dict[int, list[QuestionAttempt]] | None = None,
+) -> list[QuestDefinition]:
+    recent = recent_attempts_by_fact_id or {}
     definitions = []
     bands = [(0, 40), (40, 50), (50, 60), (60, 70), (70, 80), (80, 90)]
     for lower, upper in bands:
         candidates = [
             fact
             for fact in facts
-            if (accuracy := stat_accuracy(stats_by_fact_id.get(fact.id))) is not None
+            if (accuracy := stat_accuracy(stats_by_fact_id.get(fact.id), recent.get(fact.id, []))) is not None
             and lower / 100 <= accuracy < upper / 100
         ]
         if not candidates:
             continue
-        candidates = sorted(candidates, key=lambda fact: priority_score(stats_by_fact_id.get(fact.id)), reverse=True)[:8]
+        candidates = sorted(
+            candidates,
+            key=lambda fact: priority_score(
+                stats_by_fact_id.get(fact.id), recent_attempts=recent.get(fact.id, [])
+            ),
+            reverse=True,
+        )[:8]
         definitions.append(
             QuestDefinition(
                 quest_type=f"accuracy_{lower}_{upper}",
@@ -133,12 +173,17 @@ def accuracy_band_definitions(facts: list[Fact], stats_by_fact_id: dict[int, Fac
     return definitions
 
 
-def quest_definitions(facts: list[Fact], stats_by_fact_id: dict[int, FactStat]) -> list[QuestDefinition]:
+def quest_definitions(
+    facts: list[Fact],
+    stats_by_fact_id: dict[int, FactStat],
+    recent_attempts_by_fact_id: dict[int, list[QuestionAttempt]] | None = None,
+) -> list[QuestDefinition]:
+    recent_by_fact_id = recent_attempts_by_fact_id or {}
     by_id = {fact.id: fact for fact in facts}
-    weakest = weakest_facts(facts, stats_by_fact_id, 6)
+    weakest = weakest_facts(facts, stats_by_fact_id, 6, recent_by_fact_id)
     recent = recent_mistake_facts(facts, stats_by_fact_id, 6) or weakest[:4]
-    speedy = slower_but_accurate_facts(facts, stats_by_fact_id, 6) or weakest[:5]
-    table = table_to_strengthen(facts, stats_by_fact_id)
+    speedy = slower_but_accurate_facts(facts, stats_by_fact_id, 6, recent_by_fact_id) or weakest[:5]
+    table = table_to_strengthen(facts, stats_by_fact_id, recent_by_fact_id)
     table_facts = [fact for fact in facts if fact.a == table][:8] or weakest[:6]
     unseen = facts_without_data(facts, stats_by_fact_id)
     discovery_table = table_with_least_practice(unseen, stats_by_fact_id) if unseen else None
@@ -158,7 +203,7 @@ def quest_definitions(facts: list[Fact], stats_by_fact_id: dict[int, FactStat]) 
                 fact_ids=[fact.id for fact in discovery_facts],
             )
         )
-    definitions.extend(accuracy_band_definitions(facts, stats_by_fact_id))
+    definitions.extend(accuracy_band_definitions(facts, stats_by_fact_id, recent_by_fact_id))
     definitions.extend([
         QuestDefinition(
             quest_type="tricky",
@@ -218,14 +263,20 @@ def quest_definitions(facts: list[Fact], stats_by_fact_id: dict[int, FactStat]) 
     return definitions
 
 
-def ensure_available_quests(user_id: int, existing: list[TrainingQuest], facts: list[Fact], stats_by_fact_id: dict[int, FactStat]) -> list[TrainingQuest]:
+def ensure_available_quests(
+    user_id: int,
+    existing: list[TrainingQuest],
+    facts: list[Fact],
+    stats_by_fact_id: dict[int, FactStat],
+    recent_attempts_by_fact_id: dict[int, list[QuestionAttempt]] | None = None,
+) -> list[TrainingQuest]:
     day_key = local_date(datetime.now(timezone.utc)).isoformat()
     existing_by_key = {quest.quest_key: quest for quest in existing}
     quests = list(existing)
     for quest in quests:
         if quest.status == "available" and not quest.quest_key.startswith(day_key):
             quest.status = "expired"
-    for definition in quest_definitions(facts, stats_by_fact_id):
+    for definition in quest_definitions(facts, stats_by_fact_id, recent_attempts_by_fact_id):
         quest_key = f"{day_key}-{definition.quest_type}"
         if quest_key in existing_by_key:
             quest = existing_by_key[quest_key]

@@ -18,7 +18,7 @@ export function CreatureHome({
   canScheduleRetention,
 }: {
   creature: Creature | null;
-  onStartPractice: (limit: number) => void;
+  onStartPractice: (limit: number, targetTables?: number[]) => void;
   onStartChallenge: (limit: number) => void;
   quests: TrainingQuest[];
   onStartQuest: (quest: TrainingQuest) => void;
@@ -39,7 +39,20 @@ export function CreatureHome({
     .sort((left, right) => left.getTime() - right.getTime());
   const rememberedFacts = selectedFacts.filter((cell) => cell.learning_state === "secure").length;
   const currentRetention = (learningDashboard?.retention_assessments || []).find((item) => item.status !== "completed");
-  const recommendedAction = currentRetention?.can_start
+  const prescribedSession = learningDashboard?.next_session;
+  const prescribedAssessment = prescribedSession?.assessment_id
+    ? (learningDashboard?.retention_assessments || []).find((item) => item.assessment_id === prescribedSession.assessment_id)
+    : null;
+  const recommendedAction = prescribedSession
+    ? {
+        title: prescribedSession.title,
+        description: prescribedSession.message,
+        label: prescribedSession.action === "memory_test" ? "Start memory test" : `Start ${prescribedSession.question_count} questions`,
+        run: () => prescribedSession.action === "memory_test"
+          ? prescribedAssessment ? onStartRetention(prescribedAssessment) : onOpenRetention()
+          : onStartPractice(prescribedSession.question_count, prescribedSession.tables),
+      }
+    : currentRetention?.can_start
     ? {
         title: "Memory test ready",
         description: `Complete the ${currentRetention.next_round_label || "next"} recall check without a countdown clock.`,

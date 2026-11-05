@@ -94,6 +94,18 @@ Status: complete in 0.9.0.
 - Architecture, backup, restore, update, rollback, and release documentation.
 - Coordinated frontend/backend versioning and multi-architecture image release checks.
 
+## Phase 8: Recent Evidence And Guided Mastery
+
+Status: complete in 0.12.0.
+
+- Classification, adaptive weighting, speed quests, accuracy quests, and focused-table quests share the latest 10 first attempts as their primary evidence.
+- Recent recall speed uses a median, so an interrupted question does not keep a recovered fact in intensive practice.
+- Lifetime totals remain available for reporting and as a fallback until enough recent evidence exists.
+- Each table has a visible mastery state based on unseen, acquiring, reviewing, secure, and due facts.
+- A single backend prescription chooses between due review, new learning, interleaved maintenance, and a scheduled long-term memory test.
+- Quests stay inside the learner's selected and admin-required tables.
+- Baseline, four-week, and eight-week tests report accuracy and median recall speed by table.
+
 ## Acceptance Gates
 
 - Existing practice, challenge, quest, XP, energy, and evolution behavior remains intact.

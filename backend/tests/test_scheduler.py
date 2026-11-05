@@ -123,3 +123,26 @@ def test_due_slot_selects_a_due_fact_when_available() -> None:
 
     assert selected.id == 1
     assert reason == "due"
+
+
+def test_recent_performance_reclassifies_old_lifetime_results() -> None:
+    now = datetime.now(timezone.utc)
+    historically_weak = stat(
+        learning_state="reviewing",
+        first_attempt_total=20,
+        first_attempt_correct=5,
+        first_attempt_response_count=20,
+        first_attempt_response_time_ms=140000,
+    )
+    recent_fast_success = [QuestionAttempt(is_correct=True, attempt_number=1, response_time_ms=1500) for _ in range(5)]
+    historically_strong = stat(
+        learning_state="reviewing",
+        first_attempt_total=20,
+        first_attempt_correct=20,
+        first_attempt_response_count=20,
+        first_attempt_response_time_ms=30000,
+    )
+    recent_slow_errors = [QuestionAttempt(is_correct=False, attempt_number=1, response_time_ms=6500) for _ in range(5)]
+
+    assert fact_bucket(historically_weak, now, recent_fast_success) == "interleave"
+    assert fact_bucket(historically_strong, now, recent_slow_errors) == "acquisition"

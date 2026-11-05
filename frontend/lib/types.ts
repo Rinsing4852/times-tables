@@ -102,6 +102,7 @@ export type DashboardCell = {
 };
 
 export type Dashboard = {
+  selected_tables: number[];
   totals: { correct: number; incorrect: number; accuracy: number | null; second_attempt_correct: number; second_attempt_total: number };
   cells: DashboardCell[];
   strengths: DashboardCell[];
@@ -132,6 +133,8 @@ export type Dashboard = {
     total_lapses: number;
   };
   retention_assessments: RetentionAssessment[];
+  table_mastery: TableMastery[];
+  next_session: NextSession;
 };
 
 export type ResultQuestion = {
@@ -182,6 +185,35 @@ export type RetentionRoundSummary = {
   accuracy_change: number | null;
   average_time_change_ms: number | null;
   median_time_change_ms: number | null;
+  fact_results: { fact_id: number; label: string; table: number; questions: number; correct: number; accuracy: number; median_time_ms: number }[];
+  table_results: { table: number; questions: number; correct: number; accuracy: number; median_time_ms: number; accuracy_change: number | null; median_time_change_ms: number | null }[];
+};
+
+export type TableMastery = {
+  table: number;
+  status: "not_started" | "starting" | "building" | "securing" | "retained";
+  mastery_score: number;
+  total_facts: number;
+  unseen_facts: number;
+  acquiring_facts: number;
+  reviewing_facts: number;
+  secure_facts: number;
+  due_facts: number;
+  recent_accuracy: number | null;
+  recent_median_time_ms: number | null;
+  message: string;
+};
+
+export type NextSession = {
+  action: "practice" | "memory_test";
+  reason: "scheduled_retention_check" | "due_review" | "new_or_acquiring_facts" | "interleaved_maintenance";
+  title: string;
+  message: string;
+  question_count: number;
+  tables: number[];
+  fact_ids: number[];
+  facts: string[];
+  assessment_id: number | null;
 };
 
 export type RetentionAssessment = {

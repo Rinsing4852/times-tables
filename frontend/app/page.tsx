@@ -85,6 +85,7 @@ export default function Home() {
   const [dashboardUserId, setDashboardUserId] = useState<number | null>(null);
   const [dashboardSection, setDashboardSection] = useState<DashboardSection>("overview");
   const [practicePreset, setPracticePreset] = useState(10);
+  const [practiceTableOverride, setPracticeTableOverride] = useState<number[] | null>(null);
   const [challengePreset, setChallengePreset] = useState(20);
   const [quests, setQuests] = useState<TrainingQuest[]>([]);
   const [activeQuest, setActiveQuest] = useState<QuestStart | null>(null);
@@ -381,8 +382,9 @@ export default function Home() {
     }
   }
 
-  function startPracticeSession(limit: number) {
+  function startPracticeSession(limit: number, targetTables?: number[]) {
     setPracticePreset(limit);
+    setPracticeTableOverride(targetTables?.length ? targetTables : null);
     navigate("practice");
   }
 
@@ -574,7 +576,7 @@ export default function Home() {
             {tab === "practice" && (
               <PracticeMode
                 user={activeUser}
-                tables={tables}
+                tables={practiceTableOverride || tables}
                 questionMode={questionMode}
                 initialLimit={practicePreset}
                 creature={creature}
@@ -582,7 +584,10 @@ export default function Home() {
                   setCreature(updated);
                   queueEvolution(updated);
                 }}
-                onBackHome={() => navigate("home")}
+                onBackHome={() => {
+                  setPracticeTableOverride(null);
+                  navigate("home");
+                }}
                 onRestart={() => navigate("practice")}
                 onShowDashboard={() => navigate("dashboard")}
               />

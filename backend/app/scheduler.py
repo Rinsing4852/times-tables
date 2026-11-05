@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from .adaptive import as_aware_utc, choose_fact
+from .adaptive import as_aware_utc, choose_fact, recent_first_attempt_metrics
 from .models import Fact, FactStat, QuestionAttempt
 
 
@@ -91,21 +91,30 @@ def advance_fact_learning(
         stat.due_at = current + timedelta(days=REVIEW_INTERVALS[0])
 
 
-def fact_bucket(stat: FactStat | None, now: datetime | None = None) -> str:
+def fact_bucket(
+    stat: FactStat | None,
+    now: datetime | None = None,
+    recent_attempts: list[QuestionAttempt] | None = None,
+) -> str:
     if review_is_due(stat, now):
         return "due"
     state = learning_state(stat)
     if state in {"unseen", "acquiring"}:
         return "acquisition"
     if stat:
-        total = stat.first_attempt_total or 0
-        error_rate = 1 - (stat.first_attempt_correct / total) if total else 1
-        average_ms = (
-            stat.first_attempt_response_time_ms / stat.first_attempt_response_count
-            if stat.first_attempt_response_count
-            else 0
-        )
-        if error_rate >= 0.35 or average_ms >= 5000:
+        recent = recent_first_attempt_metrics(recent_attempts or [])
+        if recent and recent["attempts"] >= 3:
+            error_rate = 1 - recent["accuracy"]
+            response_ms = recent["median_response_time_ms"]
+        else:
+            total = stat.first_attempt_total or 0
+            error_rate = 1 - (stat.first_attempt_correct / total) if total else 1
+            response_ms = (
+                stat.first_attempt_response_time_ms / stat.first_attempt_response_count
+                if stat.first_attempt_response_count
+                else 0
+            )
+        if error_rate >= 0.35 or response_ms >= 5000:
             return "acquisition"
     return "interleave"
 
@@ -122,6 +131,15 @@ def choose_practice_fact(
     current = now or datetime.now(timezone.utc)
     available = [fact for fact in facts if fact.id != previous_fact_id] if len(facts) > 1 else list(facts)
     requested_bucket = practice_bucket_schedule(question_count)[position]
-    preferred = [fact for fact in available if fact_bucket(stats_by_fact_id.get(fact.id), current) == requested_bucket]
+    preferred = [
+        fact
+        for fact in available
+        if fact_bucket(
+            stats_by_fact_id.get(fact.id),
+            current,
+            recent_attempts_by_fact_id.get(fact.id, []),
+        )
+        == requested_bucket
+    ]
     candidates = preferred or available
     return choose_fact(candidates, stats_by_fact_id, recent_attempts_by_fact_id), requested_bucket if preferred else "adaptive"

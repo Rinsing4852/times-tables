@@ -2,7 +2,14 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app.adaptive import priority_score, question_for_fact, question_types_for_mode, rolling_accuracy_improvement
+from app.adaptive import (
+    choose_fact,
+    priority_score,
+    question_for_fact,
+    question_types_for_mode,
+    recent_first_attempt_metrics,
+    rolling_accuracy_improvement,
+)
 from app.models import Fact, FactStat, QuestionAttempt
 
 
@@ -132,3 +139,33 @@ def test_second_attempt_does_not_change_recent_recall_score() -> None:
     with_retry = first_only + [QuestionAttempt(is_correct=True, attempt_number=2, response_time_ms=500)]
 
     assert priority_score(stat, now, first_only) == priority_score(stat, now, with_retry)
+
+
+def test_recent_metrics_use_first_attempt_median_not_interrupted_outlier() -> None:
+    attempts = [
+        QuestionAttempt(is_correct=True, attempt_number=1, response_time_ms=value)
+        for value in [1000, 1800, 900000]
+    ]
+    attempts.append(QuestionAttempt(is_correct=True, attempt_number=2, response_time_ms=200))
+
+    metrics = recent_first_attempt_metrics(attempts)
+
+    assert metrics == {"attempts": 3, "correct": 3, "accuracy": 1.0, "median_response_time_ms": 1800}
+
+
+def test_weak_facts_are_favoured_but_secure_facts_never_disappear() -> None:
+    from random import seed
+
+    seed(17)
+    now = datetime.now(timezone.utc)
+    facts = [Fact(id=1, a=6, b=7, product=42), Fact(id=2, a=6, b=8, product=48)]
+    stats = {
+        1: FactStat(first_attempt_correct=1, first_attempt_total=8, current_streak=0, last_seen=now - timedelta(days=4)),
+        2: FactStat(first_attempt_correct=20, first_attempt_total=20, current_streak=20, last_seen=now),
+    }
+    counts = {1: 0, 2: 0}
+    for _ in range(1000):
+        counts[choose_fact(facts, stats).id] += 1
+
+    assert counts[1] > counts[2] * 3
+    assert counts[2] > 0
