@@ -1,5 +1,7 @@
+from datetime import datetime, timezone
+
 from app.models import Fact
-from app.retention import build_question_specs
+from app.retention import build_question_specs, retention_due_at, retention_is_due
 
 
 def test_fixed_retention_questions_are_balanced_across_selected_tables() -> None:
@@ -26,3 +28,18 @@ def test_fixed_retention_questions_are_balanced_across_selected_tables() -> None
     assert [(fact.id, question_type, prompt) for fact, question_type, prompt in first] == [
         (fact.id, question_type, prompt) for fact, question_type, prompt in repeated
     ]
+
+
+def test_retention_check_unlocks_at_start_of_local_due_date() -> None:
+    completed_at = datetime(2026, 10, 10, 18, 30, tzinfo=timezone.utc)
+    due_at = retention_due_at(completed_at, 28)
+
+    assert due_at == datetime(2026, 11, 7, 0, 0, tzinfo=timezone.utc)
+    assert retention_is_due(due_at, datetime(2026, 11, 6, 23, 59, tzinfo=timezone.utc)) is False
+    assert retention_is_due(due_at, datetime(2026, 11, 7, 0, 0, tzinfo=timezone.utc)) is True
+
+
+def test_existing_exact_time_schedule_is_ready_any_time_on_its_local_date() -> None:
+    old_style_due_at = datetime(2026, 11, 7, 18, 30, tzinfo=timezone.utc)
+
+    assert retention_is_due(old_style_due_at, datetime(2026, 11, 7, 8, 0, tzinfo=timezone.utc)) is True

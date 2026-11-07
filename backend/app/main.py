@@ -73,7 +73,7 @@ from .profiles import clean_tables, effective_tables, parse_required_tables, par
 from .quests import APP_VERSION, ensure_available_quests, quest_payload, quest_questions
 from .recommendations import next_session_prescription, table_mastery_summary
 from .reports import evaluation_csv, retention_summary
-from .retention import assessment_payload, build_question_specs
+from .retention import assessment_payload, build_question_specs, retention_due_at, retention_is_due
 from .scheduler import choose_practice_fact, learning_state, review_is_due
 from .schemas import (
     ChallengeStart,
@@ -1229,7 +1229,7 @@ def start_retention_assessment(
             due_at = assessment.week4_due_at
         elif round_key == "week8":
             due_at = assessment.week8_due_at
-        if due_at and as_aware_utc(due_at) > datetime.now(timezone.utc):
+        if due_at and not retention_is_due(due_at):
             raise HTTPException(status_code=409, detail=f"The {round_key} retention check is not due yet")
         round_record = RetentionAssessmentRound(
             assessment_id=assessment.id,
@@ -1389,8 +1389,8 @@ def submit_retention_assessment(
     round_record.total_time_ms = total_time_ms
     if round_record.round_key == "baseline":
         assessment.baseline_completed_at = now
-        assessment.week4_due_at = now + timedelta(days=28)
-        assessment.week8_due_at = now + timedelta(days=56)
+        assessment.week4_due_at = retention_due_at(now, 28)
+        assessment.week8_due_at = retention_due_at(now, 56)
         assessment.status = "week4_pending"
     elif round_record.round_key == "week4":
         assessment.status = "week8_pending"

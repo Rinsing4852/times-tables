@@ -1,14 +1,28 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, time, timedelta, timezone
 from statistics import median
 
 from .adaptive import as_aware_utc, question_for_fact, question_types_for_mode
+from .config import APP_TIMEZONE, local_date
 from .models import Fact, RetentionAssessment, RetentionAssessmentRound
 
 
 ROUND_ORDER = {"baseline": 0, "week4": 1, "week8": 2}
 ROUND_LABELS = {"baseline": "Baseline", "week4": "4-week check", "week8": "8-week check"}
+
+
+def retention_due_at(completed_at: datetime, days: int) -> datetime:
+    target_date = local_date(completed_at) + timedelta(days=days)
+    local_midnight = datetime.combine(target_date, time.min, tzinfo=APP_TIMEZONE)
+    return local_midnight.astimezone(timezone.utc)
+
+
+def retention_is_due(due_at: datetime | None, now: datetime | None = None) -> bool:
+    if not due_at:
+        return False
+    current = now or datetime.now(timezone.utc)
+    return local_date(due_at) <= local_date(current)
 
 
 def selected_tables(assessment: RetentionAssessment) -> list[int]:
@@ -128,11 +142,11 @@ def assessment_payload(assessment: RetentionAssessment, now: datetime | None = N
     elif assessment.status == "week4_pending":
         next_round_key = "week4"
         next_due_at = assessment.week4_due_at
-        can_start = bool(next_due_at and as_aware_utc(next_due_at) <= current)
+        can_start = retention_is_due(next_due_at, current)
     elif assessment.status == "week8_pending":
         next_round_key = "week8"
         next_due_at = assessment.week8_due_at
-        can_start = bool(next_due_at and as_aware_utc(next_due_at) <= current)
+        can_start = retention_is_due(next_due_at, current)
     else:
         next_round_key = None
         next_due_at = None

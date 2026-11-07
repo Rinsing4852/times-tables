@@ -220,7 +220,7 @@ function RetentionAssessments({
         <ol className="retentionSteps">
           <li><strong>Set up a baseline test.</strong> Choose the tables, question count and question type.</li>
           <li><strong>Complete the baseline.</strong> A Start test button appears here and on the learner home screen.</li>
-          <li><strong>Repeat at 4 and 8 weeks.</strong> The same questions measure retained accuracy and recall speed.</li>
+          <li><strong>Repeat at 4 and 8 weeks.</strong> The test unlocks at the start of its due date and measures retained accuracy and recall speed.</li>
         </ol>
       </details>
       {assessments.length === 0 ? (

@@ -7,6 +7,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from app.adaptive import question_for_fact
+from app.config import local_date
 from app.database import Base, get_db
 from app.main import _login_failures, app
 from app.models import (
@@ -500,8 +501,8 @@ def test_retention_check_repeats_the_fixed_test_at_four_and_eight_weeks(api) -> 
         }
     ]
     baseline_completed_at = datetime.fromisoformat(baseline_summary["baseline_completed_at"])
-    assert datetime.fromisoformat(baseline_summary["week4_due_at"]) - baseline_completed_at == timedelta(days=28)
-    assert datetime.fromisoformat(baseline_summary["week8_due_at"]) - baseline_completed_at == timedelta(days=56)
+    assert local_date(datetime.fromisoformat(baseline_summary["week4_due_at"])) - local_date(baseline_completed_at) == timedelta(days=28)
+    assert local_date(datetime.fromisoformat(baseline_summary["week8_due_at"])) - local_date(baseline_completed_at) == timedelta(days=56)
     assert client.post(f"/retention-assessments/{created['assessment_id']}/start").status_code == 409
 
     with testing_session() as db:
